@@ -1,0 +1,149 @@
+@page "/portal/equipamentos"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@inject PortalEquipmentService EquipSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Meus Equipamentos · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Meus Equipamentos</h1>
+        <p class="nexus-sub">Inventário cadastrado pelo seu suporte técnico</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_items.Count == 0)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <div class="nexus-empty">
+            <p style="font-size:15px;color:#cbd5e1">Você ainda não tem equipamentos cadastrados aqui.</p>
+            <p style="font-size:13px;color:#5a6a75;margin-top:8px">Quando o suporte cadastrar seus aparelhos, eles aparecem nessa página.</p>
+        </div>
+    </MudPaper>
+}
+else
+{
+    <div class="eq-grid">
+        @foreach (var e in _items)
+        {
+            <div class="eq-card">
+                <div class="eq-card-head">
+                    <span class="eq-card-icon">@IconFor(e.Type)</span>
+                    <div>
+                        <h3>@e.Name</h3>
+                        @if (!string.IsNullOrWhiteSpace(e.Type))
+                        {
+                            <span class="eq-card-type">@e.Type</span>
+                        }
+                    </div>
+                </div>
+
+                <dl class="eq-card-meta">
+                    @if (!string.IsNullOrWhiteSpace(e.Brand) || !string.IsNullOrWhiteSpace(e.Model))
+                    {
+                        <dt>Marca / modelo</dt>
+                        <dd>@($"{e.Brand} {e.Model}".Trim())</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(e.OperatingSystem))
+                    {
+                        <dt>Sistema</dt>
+                        <dd>@e.OperatingSystem</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(e.Specs))
+                    {
+                        <dt>Configuração</dt>
+                        <dd>@e.Specs</dd>
+                    }
+                    @if (e.PurchaseDate is not null)
+                    {
+                        <dt>Compra</dt>
+                        <dd>@e.PurchaseDate?.ToString("MM/yyyy")</dd>
+                    }
+                </dl>
+
+                @if (!string.IsNullOrWhiteSpace(e.Notes))
+                {
+                    <div class="eq-card-notes">📝 @e.Notes</div>
+                }
+
+                <div class="eq-card-actions">
+                    <MudButton Href="@($"/portal/chamados/novo?eq={e.Id}")"
+                               Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.ReportProblem">
+                        Reportar problema
+                    </MudButton>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<style>
+    .eq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+    .eq-card {
+        background: var(--nx-surface); border: 1px solid var(--nx-border);
+        border-radius: var(--nx-radius); padding: 22px; position: relative;
+        transition: border-color .15s, transform .15s;
+    }
+    .eq-card:hover { border-color: rgba(0,194,255,0.3); transform: translateY(-2px); }
+    .eq-card-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+    .eq-card-icon {
+        font-size: 32px; width: 52px; height: 52px; border-radius: 10px;
+        background: rgba(0,194,255,0.1); display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+    }
+    .eq-card-head h3 { margin: 0 0 4px; font-size: 17px; color: var(--nx-text); font-weight: 700; }
+    .eq-card-type {
+        display: inline-block; font-size: 11px; color: var(--nx-primary);
+        background: var(--nx-brand-rgba); padding: 2px 8px; border-radius: 4px;
+        text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+    }
+    .eq-card-meta { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px;
+        margin: 0 0 14px; font-size: 13px; }
+    .eq-card-meta dt { color: var(--nx-text-3); font-weight: 500; }
+    .eq-card-meta dd { color: var(--nx-text); margin: 0; }
+    .eq-card-notes {
+        font-size: 12px; color: var(--nx-text-2); background: rgba(255,255,255,0.02);
+        padding: 10px 12px; border-radius: 6px; border-left: 2px solid var(--nx-primary);
+        margin-bottom: 14px; line-height: 1.5;
+    }
+    .eq-card-actions { display: flex; justify-content: flex-end; }
+</style>
+
+@code {
+    private bool _loading = true;
+    private List<PortalEquipmentItemDto> _items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        if (ctx?.ClientId is null) { _loading = false; return; }
+        _items = await EquipSvc.GetMyEquipmentAsync(ctx.ClientId.Value);
+        _loading = false;
+    }
+
+    private static string IconFor(string? type) => (type?.ToLower() ?? "") switch
+    {
+        var t when t.Contains("notebook") || t.Contains("laptop") => "💻",
+        var t when t.Contains("desktop") || t.Contains("pc") => "🖥️",
+        var t when t.Contains("servidor") || t.Contains("server") => "🗄️",
+        var t when t.Contains("impressor") || t.Contains("printer") => "🖨️",
+        var t when t.Contains("router") || t.Contains("roteador") || t.Contains("wi-fi") => "📶",
+        var t when t.Contains("celular") || t.Contains("phone") => "📱",
+        var t when t.Contains("tablet") => "📟",
+        _ => "🔧"
+    };
+}

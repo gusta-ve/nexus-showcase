@@ -1,0 +1,143 @@
+@page "/notas"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@using Nexus.Application.Features.Notes
+@inject NoteService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Notas — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Notas</h1>
+        <p class="nexus-sub">Notas rápidas, lembretes técnicos, ideias — pesquisáveis por conteúdo</p>
+    </div>
+    <div style="display:flex;gap:8px">
+        <MudTextField @bind-Value="_search" Placeholder="Buscar..." Variant="Variant.Outlined"
+                      Margin="Margin.Dense" Class="mt-0" Style="min-width:240px"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Clearable="true" OnKeyUp="OnSearchKey" />
+        <MudSwitch @bind-Value="_includeArchived" @bind-Value:after="Load"
+                   Label="Arquivadas" Color="Color.Default" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+            Nova
+        </MudButton>
+    </div>
+</div>
+
+@if (_notes is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_notes.Count == 0)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <div class="nexus-empty">
+            Nenhuma nota. Crie a primeira clicando em "Nova".
+        </div>
+    </MudPaper>
+}
+else
+{
+    <div class="notes-grid">
+        @foreach (var n in _notes)
+        {
+            <div class="@CardClass(n)">
+                <div class="note-card-head">
+                    <h3>@n.Title</h3>
+                    <div class="note-card-actions">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(n.IsPinned ? Icons.Material.Filled.PushPin : Icons.Material.Outlined.PushPin)"
+                                       Color="@(n.IsPinned ? Color.Warning : Color.Default)"
+                                       OnClick="@(() => Pin(n))" />
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                       OnClick="@(() => OpenForm(n.Id))" />
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small">
+                            <MudMenuItem OnClick="@(() => Archive(n))">
+                                @(n.IsArchived ? "Desarquivar" : "Arquivar")
+                            </MudMenuItem>
+                            <MudMenuItem OnClick="@(() => Delete(n))" Style="color:var(--nx-error)">Excluir</MudMenuItem>
+                        </MudMenu>
+                    </div>
+                </div>
+                <div class="note-card-body">@TruncatedContent(n.Content)</div>
+                <div class="note-card-foot">
+                    @if (!string.IsNullOrWhiteSpace(n.Tags))
+                    {
+                        @foreach (var t in n.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        {
+                            <span class="note-tag">@t</span>
+                        }
+                    }
+                    <span class="note-date">@((n.UpdatedAt ?? n.CreatedAt).ToString("dd/MM HH:mm"))</span>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<NoteListItemDto>? _notes;
+    private string? _search;
+    private bool _includeArchived;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        var page = await Svc.GetPagedAsync(_search, _includeArchived, 1, 100);
+        _notes = page.Items.ToList();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Load();
+    }
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["NoteId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<NoteFormDialog>(id is null ? "Nova nota" : "Editar nota", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task Pin(NoteListItemDto n)
+    {
+        await Svc.TogglePinAsync(n.Id);
+        await Load();
+    }
+
+    private async Task Archive(NoteListItemDto n)
+    {
+        await Svc.ToggleArchiveAsync(n.Id);
+        Snackbar.Add(n.IsArchived ? "Desarquivada." : "Arquivada.", Severity.Success);
+        await Load();
+    }
+
+    private async Task Delete(NoteListItemDto n)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir nota", $"Excluir \"{n.Title}\"?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(n.Id);
+        if (r.Succeeded) { Snackbar.Add("Excluída.", Severity.Success); await Load(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static string TruncatedContent(string c)
+    {
+        if (string.IsNullOrEmpty(c)) return "";
+        return c.Length <= 220 ? c : c[..220] + "…";
+    }
+
+    private static string CardClass(NoteListItemDto n)
+    {
+        var color = string.IsNullOrEmpty(n.Color) ? "default" : n.Color;
+        var pinned = n.IsPinned ? " note-pinned" : "";
+        var archived = n.IsArchived ? " note-archived" : "";
+        return $"note-card note-{color}{pinned}{archived}";
+    }
+}

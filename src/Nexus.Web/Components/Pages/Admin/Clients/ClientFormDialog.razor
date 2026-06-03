@@ -1,0 +1,139 @@
+@using Nexus.Application.Features.Clients
+@using Nexus.Domain.Enums
+@inject ClientService ClientSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Name" Label="Nome *" Required="true"
+                                  RequiredError="Informe o nome" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect @bind-Value="_model.Type" Label="Tipo" Variant="Variant.Outlined">
+                        <MudSelectItem Value="ClientType.Individual">Pessoa Física</MudSelectItem>
+                        <MudSelectItem Value="ClientType.Company">Empresa</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Email" Label="Email"
+                                  Variant="Variant.Outlined" InputType="InputType.Email" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.WhatsApp" Label="WhatsApp" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.Phone" Label="Telefone" Variant="Variant.Outlined" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Document" Label="CPF / CNPJ" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Status" Label="Status" Variant="Variant.Outlined">
+                        <MudSelectItem Value="ClientStatus.Active">Ativo</MudSelectItem>
+                        <MudSelectItem Value="ClientStatus.Prospect">Possível cliente</MudSelectItem>
+                        <MudSelectItem Value="ClientStatus.Inactive">Inativo</MudSelectItem>
+                        <MudSelectItem Value="ClientStatus.Blocked">Bloqueado</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                @if (_model.Type == ClientType.Company)
+                {
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_model.CompanyName" Label="Razão social" Variant="Variant.Outlined" />
+                    </MudItem>
+                }
+
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.City" Label="Cidade" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.State" Label="UF" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.ZipCode" Label="CEP" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Address" Label="Endereço" Variant="Variant.Outlined" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudSwitch @bind-Value="_model.IsRecurring" Label="Cliente recorrente"
+                               Color="Color.Primary" />
+                </MudItem>
+                @if (_model.IsRecurring)
+                {
+                    <MudItem xs="12" sm="6">
+                        <MudNumericField @bind-Value="_model.MonthlyValue" Label="Valor mensal (R$)"
+                                         Variant="Variant.Outlined" Min="0" Format="N2" />
+                    </MudItem>
+                }
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags (separadas por vírgula)"
+                                  Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" Label="Observações" Lines="3"
+                                  Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? ClientId { get; set; }
+
+    private MudForm _form = null!;
+    private ClientFormDto _model = new();
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ClientId is { } id)
+        {
+            var loaded = await ClientSvc.GetForEditAsync(id);
+            if (loaded is not null) _model = loaded;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await ClientSvc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Cliente atualizado.", Severity.Success);
+            }
+            else
+            {
+                var r = await ClientSvc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Cliente criado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

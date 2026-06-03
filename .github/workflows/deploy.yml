@@ -1,0 +1,26 @@
+name: Deploy
+
+on:
+  # Vitrine: execução manual apenas — os secrets de deploy (SSH_*) vivem no repo de produção.
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Servidor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            set -e
+            cd /opt/nexus
+            echo "atualizando codigo..."; git pull origin main
+            echo "rebuild web..."; docker compose up -d --build --no-deps web
+            echo "limpando imagens..."; docker image prune -f
+            echo "deploy concluido"

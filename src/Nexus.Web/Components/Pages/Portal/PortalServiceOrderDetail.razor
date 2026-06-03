@@ -1,0 +1,115 @@
+@page "/portal/ordens-servico/{Id:guid}"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalServiceOrderService OsSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Ordem de Serviço · Portal</PageTitle>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <MudButton Href="/portal/ordens-servico" StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Variant="Variant.Text" Size="Size.Small">Voltar</MudButton>
+            <h1 class="nexus-h1" style="margin-top:6px"><code>@_data.Number</code> · @_data.Title</h1>
+            <p class="nexus-sub">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                @if (_data.ScheduledDate is not null)
+                {
+                    <span style="margin-left:8px">agendado pra <b>@_data.ScheduledDate?.ToString("dd/MM/yyyy")</b></span>
+                }
+            </p>
+        </div>
+        <div>
+            <MudButton Href="@($"/api/portal/docs/service-orders/{_data.Id}/pdf")" Target="_blank"
+                       Color="Color.Primary" Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.PictureAsPdf">Baixar PDF</MudButton>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_data.Description))
+    {
+        <MudPaper Class="nexus-panel mb-3" Elevation="0">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">Descrição</MudText>
+            <MudText Typo="Typo.body1" Style="white-space:pre-wrap">@_data.Description</MudText>
+        </MudPaper>
+    }
+
+    <MudGrid Spacing="3" Class="mb-3">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="nexus-panel" Elevation="0" Style="height:100%">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Execução</MudText>
+                <div style="font-size:14px;color:#cbd5e1;line-height:1.8">
+                    <div>Início: <b>@(_data.StartedAt?.ToString("dd/MM/yyyy HH:mm") ?? "—")</b></div>
+                    <div>Conclusão: <b>@(_data.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "—")</b></div>
+                </div>
+            </MudPaper>
+        </MudItem>
+        @if (_data.Total is not null)
+        {
+            <MudItem xs="12" md="6">
+                <MudPaper Class="nexus-panel" Elevation="0" Style="height:100%;text-align:right">
+                    <div style="font-size:13px;color:#a1a1aa">Total</div>
+                    <div style="font-size:28px;font-weight:700;color:#00c2ff">R$ @_data.Total?.ToString("N2")</div>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+
+    @if (!string.IsNullOrWhiteSpace(_data.Checklist))
+    {
+        <MudPaper Class="nexus-panel" Elevation="0">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">Checklist executado</MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;color:#cbd5e1">@_data.Checklist</MudText>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private PortalServiceOrderDetailDto? _data;
+    private Guid? _clientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+        if (_clientId is null) { Nav.NavigateTo("/portal/ordens-servico"); return; }
+
+        _data = await OsSvc.GetDetailAsync(Id, _clientId.Value);
+        if (_data is null) Nav.NavigateTo("/portal/ordens-servico");
+    }
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => "Em atendimento",
+        DocumentStatus.Accepted => "Concluída",
+        DocumentStatus.Rejected => "Cancelada",
+        DocumentStatus.Expired => "Pendente",
+        _ => s.ToString()
+    };
+}

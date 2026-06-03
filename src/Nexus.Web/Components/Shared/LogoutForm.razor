@@ -1,0 +1,47 @@
+@using Microsoft.AspNetCore.Antiforgery
+@inject IAntiforgery Antiforgery
+@inject IHttpContextAccessor HttpAccessor
+@inject PersistentComponentState State
+@implements IDisposable
+
+<form method="post" action="/auth/logout">
+    @if (!string.IsNullOrEmpty(_field) && !string.IsNullOrEmpty(_value))
+    {
+        <input type="hidden" name="@_field" value="@_value" />
+    }
+    <button type="submit" class="nexus-logout-btn"><span>Sair</span></button>
+</form>
+
+@code {
+    private string? _field;
+    private string? _value;
+    private PersistingComponentStateSubscription _sub;
+
+    protected override void OnInitialized()
+    {
+        if (State.TryTakeFromJson<string[]>("logout.token", out var saved) && saved is { Length: 2 })
+        {
+            _field = saved[0];
+            _value = saved[1];
+        }
+        else
+        {
+            var ctx = HttpAccessor.HttpContext;
+            if (ctx is not null)
+            {
+                var t = Antiforgery.GetAndStoreTokens(ctx);
+                _field = t.FormFieldName;
+                _value = t.RequestToken;
+            }
+        }
+
+        _sub = State.RegisterOnPersisting(() =>
+        {
+            if (_field is not null && _value is not null)
+                State.PersistAsJson("logout.token", new[] { _field, _value });
+            return Task.CompletedTask;
+        });
+    }
+
+    public void Dispose() => _sub.Dispose();
+}

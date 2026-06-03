@@ -1,0 +1,135 @@
+@page "/dados-demo"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@inject IDemoDataService Demo
+@inject ISnackbar Snackbar
+@inject IDialogService Dialog
+
+<PageTitle>Dados de demonstração · Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <span class="nexus-eyebrow">Sistema</span>
+        <h1 class="nexus-h1">Dados de demonstração</h1>
+        <p class="nexus-sub">
+            Popula o sistema com um conjunto fictício realista (clientes, chamados,
+            orçamentos, financeiro, cofre, servidores) para screenshots de portfólio
+            ou para a instância de demonstração. Tudo é marcado e removível em um clique
+            — <b>nunca toca seus dados reais</b>.
+        </p>
+    </div>
+</div>
+
+<MudCard Elevation="0" Class="pa-2" Style="max-width:680px;background:var(--mud-palette-surface);border:1px solid var(--mud-palette-lines-default);border-radius:14px;">
+    <MudCardContent>
+
+        @if (_loading)
+        {
+            <div class="d-flex align-center gap-3 py-4">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Carregando estado…</MudText>
+            </div>
+        }
+        else
+        {
+            <div class="d-flex align-center justify-space-between mb-4">
+                <div class="d-flex align-center gap-3">
+                    <MudIcon Icon="@(_status!.Present ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.Circle)"
+                             Color="@(_status.Present ? Color.Success : Color.Default)" />
+                    <div>
+                        <MudText Typo="Typo.subtitle1">
+                            @(_status.Present ? "Dados de demonstração presentes" : "Nenhum dado de demonstração")
+                        </MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            @if (_status.Present)
+                            {
+                                @($"{_status.Clients} clientes · {_status.Total} registros marcados")
+                            }
+                            else
+                            {
+                                @("O sistema está sem dados fictícios.")
+                            }
+                        </MudText>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-3 flex-wrap">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AutoFixHigh"
+                           OnClick="Seed" Disabled="_busy || _status.Present">
+                    @(_running == "seed" ? "Populando…" : "Popular dados de demonstração")
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.DeleteSweep"
+                           OnClick="Purge" Disabled="_busy || !_status.Present">
+                    @(_running == "purge" ? "Removendo…" : "Remover dados de demonstração")
+                </MudButton>
+            </div>
+
+            @if (_status.Present)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-5">
+                    <b>Login do portal do cliente</b> (para o print do isolamento multi-tenant):<br />
+                    <code>portal@horizontecontabil.com.br</code> · senha <code>Portal@Demo2026</code><br />
+                    <span style="opacity:.75">Entra como <b>Contabilidade Horizonte Ltda</b> e só enxerga os dados dele.</span>
+                </MudAlert>
+            }
+        }
+
+    </MudCardContent>
+</MudCard>
+
+@code {
+    private DemoDataStatus? _status;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _running;
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        _status = await Demo.GetStatusAsync();
+        _loading = false;
+    }
+
+    private async Task Seed()
+    {
+        _busy = true; _running = "seed";
+        try
+        {
+            _status = await Demo.SeedAsync();
+            Snackbar.Add($"Dados de demonstração criados — {_status.Clients} clientes, {_status.Total} registros.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falhou ao popular: {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; _running = null; }
+    }
+
+    private async Task Purge()
+    {
+        var ok = await Dialog.ShowMessageBoxAsync(
+            "Remover dados de demonstração?",
+            "Isso apaga apenas os registros fictícios marcados (clientes, chamados, orçamentos, etc.). Seus dados reais não são afetados.",
+            yesText: "Remover", cancelText: "Cancelar");
+        if (ok != true) return;
+
+        _busy = true; _running = "purge";
+        try
+        {
+            var removed = await Demo.PurgeAsync();
+            await Refresh();
+            Snackbar.Add($"Dados de demonstração removidos ({removed} registros).", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falhou ao remover: {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; _running = null; }
+    }
+}

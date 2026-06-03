@@ -1,0 +1,255 @@
+@page "/orcamentos/{Id:guid}"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@using Nexus.Application.Features.Quotes
+@using Nexus.Domain.Enums
+@inject QuoteService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_data?.Number ?? "Orçamento") · Nexus</PageTitle>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_data is null)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <MudText>Orçamento não encontrado.</MudText>
+    </MudPaper>
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <div class="nexus-breadcrumb"><a href="/orcamentos">← Orçamentos</a></div>
+            <h1 class="nexus-h1"><code>@_data.Number</code> · @_data.Title</h1>
+            <div class="nexus-sub">
+                @(_data.ClientName ?? "Sem cliente")
+                · Emitido em @_data.CreatedAt.ToString("dd/MM/yyyy")
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton Href="@($"/api/docs/quotes/{_data.Id}/pdf")" Target="_blank"
+                       Color="Color.Primary" Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.PictureAsPdf">Baixar PDF</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit">Editar</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.Delete" OnClick="Delete">Excluir</MudButton>
+        </div>
+    </div>
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="8">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <div style="display:flex;align-items:center;margin-bottom:14px">
+                    <MudText Typo="Typo.h6">Itens (@_data.Items.Count)</MudText>
+                    <MudSpacer />
+                    @if (_data.Status == DocumentStatus.Draft)
+                    {
+                        <MudButton Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenItem(null))">
+                            Adicionar item
+                        </MudButton>
+                    }
+                </div>
+
+                @if (_data.Items.Count == 0)
+                {
+                    <div class="nexus-empty">Nenhum item. Adicione produtos/serviços pra montar o orçamento.</div>
+                }
+                else
+                {
+                    <MudSimpleTable Hover="true" Class="nexus-table">
+                        <thead>
+                            <tr>
+                                <th>Descrição</th>
+                                <th style="text-align:center;width:80px">Qtd</th>
+                                <th style="text-align:right;width:120px">Unitário</th>
+                                <th style="text-align:right;width:120px">Total</th>
+                                <th style="width:80px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var i in _data.Items)
+                            {
+                                <tr>
+                                    <td>@i.Description</td>
+                                    <td style="text-align:center">@i.Quantity.ToString("0.##")</td>
+                                    <td style="text-align:right">@i.UnitPrice.ToString("C2")</td>
+                                    <td style="text-align:right"><b>@i.Total.ToString("C2")</b></td>
+                                    <td style="text-align:right">
+                                        @if (_data.Status == DocumentStatus.Draft)
+                                        {
+                                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                                           OnClick="@(() => OpenItem(i))" />
+                                            <MudIconButton Size="Size.Small" Color="Color.Error"
+                                                           Icon="@Icons.Material.Filled.Delete"
+                                                           OnClick="@(() => RemoveItem(i))" />
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudPaper>
+
+            @if (!string.IsNullOrWhiteSpace(_data.Description) || !string.IsNullOrWhiteSpace(_data.Notes) || !string.IsNullOrWhiteSpace(_data.Terms))
+            {
+                <MudPaper Class="nexus-panel" Elevation="0">
+                    @if (!string.IsNullOrWhiteSpace(_data.Description))
+                    {
+                        <MudText Typo="Typo.h6" Class="mb-2">Descrição</MudText>
+                        <div class="ticket-desc">@_data.Description</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_data.Notes))
+                    {
+                        <MudText Typo="Typo.h6" Class="mt-4 mb-2">Observações</MudText>
+                        <div class="ticket-desc">@_data.Notes</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_data.Terms))
+                    {
+                        <MudText Typo="Typo.h6" Class="mt-4 mb-2">Condições</MudText>
+                        <div class="ticket-desc">@_data.Terms</div>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Status</MudText>
+                <div style="margin-bottom:14px">
+                    <MudChip T="string" Size="Size.Medium" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                    @if (_data.Status == DocumentStatus.Draft)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Info"
+                                   StartIcon="@Icons.Material.Filled.Send"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Sent))">Marcar como Enviado</MudButton>
+                    }
+                    @if (_data.Status == DocumentStatus.Sent)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Success"
+                                   StartIcon="@Icons.Material.Filled.CheckCircle"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Accepted))">Marcar como Aprovado</MudButton>
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.Cancel"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Rejected))">Marcar como Recusado</MudButton>
+                    }
+                    @if (_data.Status == DocumentStatus.Accepted || _data.Status == DocumentStatus.Rejected || _data.Status == DocumentStatus.Expired)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Undo"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Draft))">Voltar pra Rascunho</MudButton>
+                    }
+                </div>
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Totais</MudText>
+                <div class="ticket-meta"><span>Subtotal</span><b>@_data.Subtotal.ToString("C2")</b></div>
+                @if (_data.Discount > 0)
+                { <div class="ticket-meta"><span>Desconto</span><b style="color:var(--nx-success)">-@_data.Discount.ToString("C2")</b></div> }
+                @if (_data.Tax > 0)
+                { <div class="ticket-meta"><span>Impostos</span><b>+@_data.Tax.ToString("C2")</b></div> }
+                <MudDivider Class="my-2" />
+                <div class="ticket-meta">
+                    <span style="font-size:14px;font-weight:600">TOTAL</span>
+                    <b style="color:var(--nx-primary);font-size:18px">@_data.Total.ToString("C2")</b>
+                </div>
+                @if (_data.ValidUntil is DateTime v)
+                {
+                    <MudDivider Class="my-3" />
+                    <div class="ticket-meta"><span>Válido até</span><b>@v.ToString("dd/MM/yyyy")</b></div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private QuoteDetailDto? _data;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try { _data = await Svc.GetDetailAsync(Id); }
+        finally { _loading = false; }
+    }
+
+    private async Task OpenEdit()
+    {
+        var parameters = new DialogParameters { ["QuoteId"] = Id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<QuoteFormDialog>("Editar Orçamento", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task OpenItem(QuoteItemDto? existing)
+    {
+        var parameters = new DialogParameters
+        {
+            ["QuoteId"] = Id,
+            ["Existing"] = existing
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<QuoteItemDialog>(existing is null ? "Novo item" : "Editar item", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task RemoveItem(QuoteItemDto i)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync("Remover item", $"Remover \"{i.Description}\"?",
+            yesText: "Remover", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.RemoveItemAsync(i.Id);
+        if (r.Succeeded) { Snackbar.Add("Removido.", Severity.Success); await Load(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task ChangeStatus(DocumentStatus s)
+    {
+        var r = await Svc.ChangeStatusAsync(Id, s);
+        if (r.Succeeded) { Snackbar.Add("Status atualizado.", Severity.Success); await Load(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task Delete()
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir orçamento", $"Excluir {_data!.Number}?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(Id);
+        if (r.Succeeded) { Snackbar.Add("Excluído.", Severity.Success); Nav.NavigateTo("/orcamentos"); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => Color.Default,
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => "Rascunho",
+        DocumentStatus.Sent => "Enviado",
+        DocumentStatus.Accepted => "Aprovado",
+        DocumentStatus.Rejected => "Recusado",
+        DocumentStatus.Expired => "Expirado",
+        _ => s.ToString()
+    };
+}

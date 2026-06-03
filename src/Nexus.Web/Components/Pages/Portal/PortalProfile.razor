@@ -1,0 +1,44 @@
+@page "/portal/perfil"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Meu Perfil · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Meu Perfil</h1>
+        <p class="nexus-sub">Seus dados de acesso ao portal</p>
+    </div>
+</div>
+
+<MudPaper Class="nexus-panel" Style="max-width:560px" Elevation="0">
+    @if (_ctx is null)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <div class="ticket-meta"><span>Nome</span><b>@_ctx.FullName</b></div>
+        <div class="ticket-meta"><span>Email (login)</span><b>@_ctx.Email</b></div>
+        <div class="ticket-meta"><span>Senha</span><b>••••••••</b></div>
+
+        <MudButton Href="/portal/trocar-senha" Color="Color.Primary" Variant="Variant.Outlined"
+                   Class="mt-4" StartIcon="@Icons.Material.Filled.Lock">Trocar senha</MudButton>
+    }
+</MudPaper>
+
+@code {
+    private PortalUserContext? _ctx;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        _ctx = await Access.GetUserContextAsync(userId);
+    }
+}

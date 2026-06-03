@@ -1,0 +1,192 @@
+@page "/chamados"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Tickets
+@using Nexus.Domain.Enums
+@inject TicketService TicketSvc
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+<PageTitle>Chamados — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Chamados</h1>
+        <p class="nexus-sub">Gerencie as solicitações abertas e o histórico de atendimentos</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Novo Chamado
+    </MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" LoadingProgressColor="Color.Primary"
+              OnRowClick="@OnRowClick" T="TicketListItemDto">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por número, título, cliente..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="TicketStatus" SelectAll="true" SelectAllText="Todos os status"
+                               MultiSelection="true" @bind-SelectedValues="_statusFilter" @bind-SelectedValues:after="Reload"
+                               Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="TicketStatus.Open">Aberto</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.Analyzing">Em análise</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.InProgress">Em andamento</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.WaitingClient">Aguardando cliente</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.Resolved">Resolvido</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.Closed">Fechado</MudSelectItem>
+                        <MudSelectItem Value="TicketStatus.Cancelled">Cancelado</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="TicketPriority" SelectAll="true" SelectAllText="Todas"
+                               MultiSelection="true" @bind-SelectedValues="_priorityFilter" @bind-SelectedValues:after="Reload"
+                               Label="Prioridade" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="TicketPriority.Critical">Crítica</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.High">Alta</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.Medium">Média</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.Low">Baixa</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Número</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Cliente / Contato</MudTh>
+            <MudTh>Prioridade</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Criado</MudTh>
+            <MudTh>Origem</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Número"><code>@context.Number</code></MudTd>
+            <MudTd DataLabel="Título"><b>@context.Title</b></MudTd>
+            <MudTd DataLabel="Cliente">
+                @if (context.ClientName is not null) { <span>@context.ClientName</span> }
+                else if (context.ContactName is not null) { <span style="color:var(--nx-text-2)">@context.ContactName <em>(sem vínculo)</em></span> }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Prioridade">
+                <MudChip T="string" Size="Size.Small" Color="PriorityColor(context.Priority)">
+                    @PriorityLabel(context.Priority)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">
+                    @StatusLabel(context.Status)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Criado">@context.CreatedAt.ToString("dd/MM HH:mm")</MudTd>
+            <MudTd DataLabel="Origem">
+                @if (context.IsFromPublic)
+                {
+                    <MudTooltip Text="Aberto pela landing pública">
+                        <MudIcon Icon="@Icons.Material.Filled.Public" Size="Size.Small" Color="Color.Info" />
+                    </MudTooltip>
+                }
+                else { <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Color="Color.Default" /> }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum chamado encontrado.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<TicketListItemDto> _table = null!;
+    private string? _search;
+    private IReadOnlyCollection<TicketStatus> _statusFilter = new HashSet<TicketStatus>
+    {
+        TicketStatus.Open, TicketStatus.Analyzing, TicketStatus.InProgress, TicketStatus.WaitingClient, TicketStatus.Resolved
+    };
+    private IReadOnlyCollection<TicketPriority> _priorityFilter = new HashSet<TicketPriority>(Enum.GetValues<TicketPriority>());
+    private bool _loading;
+
+    private async Task<TableData<TicketListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await TicketSvc.GetPagedAsync(
+                _search,
+                _statusFilter?.ToList(),
+                _priorityFilter?.ToList(),
+                state.Page + 1, state.PageSize, token);
+            return new TableData<TicketListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private Task Reload() => _table is null ? Task.CompletedTask : _table.ReloadServerData();
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<TicketListItemDto> args)
+        => Nav.NavigateTo($"/chamados/{args.Item!.Id}");
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["TicketId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var title = id is null ? "Novo Chamado" : "Editar Chamado";
+        var dlg = await DialogService.ShowAsync<TicketFormDialog>(title, parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled) await Reload();
+    }
+
+    private static Color StatusColor(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => Color.Info,
+        TicketStatus.Analyzing => Color.Warning,
+        TicketStatus.InProgress => Color.Primary,
+        TicketStatus.WaitingClient => Color.Tertiary,
+        TicketStatus.Resolved => Color.Success,
+        TicketStatus.Closed => Color.Default,
+        TicketStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Aberto",
+        TicketStatus.Analyzing => "Em análise",
+        TicketStatus.InProgress => "Em andamento",
+        TicketStatus.WaitingClient => "Aguard. cliente",
+        TicketStatus.Resolved => "Resolvido",
+        TicketStatus.Closed => "Fechado",
+        TicketStatus.Cancelled => "Cancelado",
+        _ => s.ToString()
+    };
+
+    private static Color PriorityColor(TicketPriority p) => p switch
+    {
+        TicketPriority.Critical => Color.Error,
+        TicketPriority.High => Color.Warning,
+        TicketPriority.Medium => Color.Info,
+        TicketPriority.Low => Color.Default,
+        _ => Color.Default
+    };
+
+    private static string PriorityLabel(TicketPriority p) => p switch
+    {
+        TicketPriority.Critical => "Crítica",
+        TicketPriority.High => "Alta",
+        TicketPriority.Medium => "Média",
+        TicketPriority.Low => "Baixa",
+        _ => p.ToString()
+    };
+}

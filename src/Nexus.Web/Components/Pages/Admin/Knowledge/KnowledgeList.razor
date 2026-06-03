@@ -1,0 +1,163 @@
+@page "/conhecimento"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Knowledge
+@inject KnowledgeService Svc
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Base de Conhecimento · Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1 nx-display">BASE DE CONHECIMENTO</h1>
+        <p class="nexus-sub">Runbooks, snippets e soluções pra problemas recorrentes</p>
+    </div>
+    <MudButton Color="Color.Primary" Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">Novo artigo</MudButton>
+</div>
+
+<MudPaper Class="nexus-panel mb-3" Elevation="0">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="5">
+            <MudTextField @bind-Value="_search" Label="Buscar (título, conteúdo, tag)"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Immediate="true" DebounceInterval="300"
+                          OnDebounceIntervalElapsed="Reload" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect @bind-Value="_category" Label="Categoria" Variant="Variant.Outlined"
+                       Clearable="true" T="string" Dense="true"
+                       SelectedValuesChanged="@(_ => Reload())">
+                <MudSelectItem T="string" Value="@(null)">Todas</MudSelectItem>
+                @foreach (var c in _categories)
+                {
+                    <MudSelectItem T="string" Value="@c">@c</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField @bind-Value="_tag" Label="Tag" Variant="Variant.Outlined"
+                          Immediate="true" DebounceInterval="300"
+                          OnDebounceIntervalElapsed="Reload" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading"
+              OnRowClick="@OnRowClick" T="KnowledgeListItemDto">
+        <HeaderContent>
+            <MudTh Style="width:30px"></MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Categoria</MudTh>
+            <MudTh>Tags</MudTh>
+            <MudTh Style="text-align:right">Views</MudTh>
+            <MudTh>Atualizado</MudTh>
+            <MudTh Style="width:80px"></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                @if (context.IsPinned)
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.PushPin" Size="Size.Small" Color="Color.Warning" />
+                }
+            </MudTd>
+            <MudTd>
+                <div><b>@context.Title</b></div>
+                @if (!string.IsNullOrWhiteSpace(context.Summary))
+                {
+                    <div style="font-size:12px;color:#a1a1aa">@context.Summary</div>
+                }
+            </MudTd>
+            <MudTd>
+                @if (!string.IsNullOrWhiteSpace(context.Category))
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.Category</MudChip>
+                }
+            </MudTd>
+            <MudTd>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    @foreach (var tag in (context.Tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        <code style="font-size:11px;color:#00c2ff;background:#0d1117;padding:2px 6px;border-radius:3px">#@tag</code>
+                    }
+                </div>
+            </MudTd>
+            <MudTd Style="text-align:right;color:#a1a1aa">@context.Views</MudTd>
+            <MudTd>@context.UpdatedAt.ToString("dd/MM/yyyy")</MudTd>
+            <MudTd>
+                <div @onclick:stopPropagation="true">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                   OnClick="@(() => Delete(context))" />
+                </div>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum artigo. Comece criando o primeiro runbook.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<KnowledgeListItemDto> _table = null!;
+    private bool _loading;
+    private string? _search;
+    private string? _category;
+    private string? _tag;
+    private List<string> _categories = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Svc.GetCategoriesAsync();
+    }
+
+    private async Task<TableData<KnowledgeListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await Svc.GetPagedAsync(_search, _category, _tag, state.Page + 1, state.PageSize, token);
+            return new TableData<KnowledgeListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload()
+    {
+        if (_table is not null) await _table.ReloadServerData();
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<KnowledgeListItemDto> args)
+        => Nav.NavigateTo($"/conhecimento/{args.Item!.Id}");
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { [nameof(KnowledgeFormDialog.ArticleId)] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dlg = await DialogService.ShowAsync<KnowledgeFormDialog>(id is null ? "Novo artigo" : "Editar artigo", parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled)
+        {
+            _categories = await Svc.GetCategoriesAsync();
+            await Reload();
+        }
+    }
+
+    private async Task Delete(KnowledgeListItemDto item)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Apagar artigo",
+            $"Confirma a exclusão de \"{item.Title}\"?",
+            yesText: "Apagar", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(item.Id);
+        if (r.Succeeded) { Snackbar.Add("Artigo removido.", Severity.Info); await Reload(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+}

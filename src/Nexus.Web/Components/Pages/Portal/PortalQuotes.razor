@@ -1,0 +1,99 @@
+@page "/portal/orcamentos"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalQuoteService QuoteSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Meus Orçamentos · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Meus Orçamentos</h1>
+        <p class="nexus-sub">Veja propostas enviadas, aprove ou recuse pelo portal</p>
+    </div>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading"
+              OnRowClick="@OnRowClick" T="PortalQuoteListDto">
+        <HeaderContent>
+            <MudTh>Número</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:right">Valor</MudTh>
+            <MudTh>Enviado em</MudTh>
+            <MudTh>Válido até</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><code>@context.Number</code></MudTd>
+            <MudTd><b>@context.Title</b></MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">@StatusLabel(context.Status)</MudChip>
+            </MudTd>
+            <MudTd Style="text-align:right">R$ @context.Total.ToString("N2")</MudTd>
+            <MudTd>@(context.SentAt?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+            <MudTd>@(context.ValidUntil?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum orçamento por enquanto.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<PortalQuoteListDto> _table = null!;
+    private bool _loading;
+    private Guid? _clientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+    }
+
+    private async Task<TableData<PortalQuoteListDto>> LoadData(TableState state, CancellationToken token)
+    {
+        if (_clientId is null) return new TableData<PortalQuoteListDto> { Items = [], TotalItems = 0 };
+        _loading = true;
+        try
+        {
+            var page = await QuoteSvc.GetMyQuotesAsync(_clientId.Value, state.Page + 1, state.PageSize, token);
+            return new TableData<PortalQuoteListDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<PortalQuoteListDto> args)
+        => Nav.NavigateTo($"/portal/orcamentos/{args.Item!.Id}");
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => "Aguardando você",
+        DocumentStatus.Accepted => "Aprovado",
+        DocumentStatus.Rejected => "Recusado",
+        DocumentStatus.Expired => "Expirado",
+        _ => s.ToString()
+    };
+}

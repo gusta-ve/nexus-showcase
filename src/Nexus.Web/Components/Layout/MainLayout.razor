@@ -1,0 +1,131 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Nav
+
+<MudThemeProvider Theme="Nexus.Web.Services.NexusTheme.Theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<AuthorizeView Context="auth">
+    <Authorized>
+        <MudLayout>
+            <MudAppBar Elevation="0" Class="nexus-appbar">
+                <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit"
+                               OnClick="ToggleDrawer" Edge="Edge.Start" />
+
+                <div class="nexus-section-title">
+                    <span class="nexus-section-title-eyebrow">Gustavo Almeida · TI</span>
+                    <span class="nexus-section-title-name">@_sectionLabel</span>
+                </div>
+
+                <MudSpacer />
+
+                <NotificationBell />
+
+                <div class="nx-user-dd" id="nx-user-dd-main">
+                    <button type="button" class="nexus-user-chip" aria-label="Conta"
+                            onclick="nxUserDd.toggle('nx-user-dd-main')">
+                        <span class="nexus-user-chip-avatar">@Initials(auth.User.Identity?.Name)</span>
+                        <span class="nexus-user-chip-name">@DisplayName(auth.User.Identity?.Name)</span>
+                        <svg class="nexus-user-chip-caret" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <div class="nx-user-dd-panel">
+                        <div class="nx-user-dd-header">
+                            <span class="nx-user-dd-name">@auth.User.Identity?.Name</span>
+                            <span class="nx-user-dd-role">@RoleLabel(auth)</span>
+                        </div>
+                        <div class="nx-user-dd-divider"></div>
+                        <LogoutForm />
+                    </div>
+                </div>
+            </MudAppBar>
+
+            <MudDrawer @bind-Open="_drawerOpen" Elevation="0" ClipMode="DrawerClipMode.Always"
+                       Variant="DrawerVariant.Mini" OpenMiniOnHover="false"
+                       Class="@($"nexus-drawer {(_drawerOpen ? "is-open" : "is-collapsed")}")">
+                <NavMenu />
+            </MudDrawer>
+
+            <MudMainContent Class="nexus-main">
+                <MudContainer MaxWidth="MaxWidth.False" Class="pa-6">
+                    @Body
+                </MudContainer>
+            </MudMainContent>
+        </MudLayout>
+    </Authorized>
+</AuthorizeView>
+
+<BlazorErrorBanner />
+
+@code {
+    private bool _drawerOpen = true;
+    private string _sectionLabel = "Painel";
+
+    private static readonly Dictionary<string, string> SectionMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["dashboard"] = "Dashboard",
+        ["clientes"] = "Clientes",
+        ["chamados"] = "Chamados",
+        ["financeiro"] = "Financeiro",
+        ["orcamentos"] = "Orçamentos",
+        ["ordens-servico"] = "Ordens de Serviço",
+        ["avaliacoes"] = "Avaliações",
+        ["cofre"] = "Cofre de Senhas",
+        ["servidores"] = "Servidores",
+        ["conhecimento"] = "Base de Conhecimento",
+        ["tarefas"] = "Tarefas",
+        ["notas"] = "Notas",
+        ["automacoes"] = "Automações",
+        ["integracoes"] = "Integrações"
+    };
+
+    protected override void OnInitialized()
+    {
+        UpdateSection();
+        Nav.LocationChanged += OnLocation;
+    }
+
+    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateSection();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateSection()
+    {
+        var segment = new Uri(Nav.Uri).AbsolutePath.Trim('/').Split('/').FirstOrDefault() ?? "";
+        _sectionLabel = SectionMap.TryGetValue(segment, out var v) ? v : "Painel";
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Trim().Split('@')[0].Split(new[] { ' ', '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..1].ToUpperInvariant();
+        return (parts[0][0].ToString() + parts[^1][0]).ToUpperInvariant();
+    }
+
+    private static string DisplayName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Conta";
+        // Email → corta o domain pra ficar mais limpo no chip
+        var local = name.Split('@')[0];
+        return char.ToUpperInvariant(local[0]) + local[1..];
+    }
+
+    private static string RoleLabel(AuthenticationState state)
+    {
+        if (state.User.IsInRole("Admin")) return "Administrador";
+        if (state.User.IsInRole("Technician")) return "Técnico";
+        if (state.User.IsInRole("Client")) return "Cliente";
+        return "Usuário";
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocation;
+}

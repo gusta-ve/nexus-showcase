@@ -1,0 +1,242 @@
+@page "/financeiro"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Financial
+@using Nexus.Domain.Enums
+@inject TransactionService TxSvc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Financeiro — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Financeiro</h1>
+        <p class="nexus-sub">Receitas, despesas, recorrências e resultado do mês</p>
+    </div>
+    <div style="display:flex;gap:8px">
+        <MudButton Variant="Variant.Outlined" Color="Color.Success"
+                   StartIcon="@Icons.Material.Filled.TrendingUp"
+                   OnClick="@(() => OpenForm(null, TransactionType.Income))">
+            Receita
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.TrendingDown"
+                   OnClick="@(() => OpenForm(null, TransactionType.Expense))">
+            Despesa
+        </MudButton>
+    </div>
+</div>
+
+@if (_summary is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <MudGrid Spacing="4" Class="mb-2">
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Receita do mês" Value="@_summary.MonthIncome.ToString("C0")"
+                      Icon="@Icons.Material.Filled.TrendingUp" Color="#22c55e" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Despesa do mês" Value="@_summary.MonthExpenses.ToString("C0")"
+                      Icon="@Icons.Material.Filled.TrendingDown" Color="#ef4444" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Lucro do mês" Value="@_summary.MonthProfit.ToString("C0")"
+                      Icon="@Icons.Material.Filled.AccountBalance" Color="#6366f1"
+                      Hint="@(_summary.MonthIncome > 0 ? $"{(_summary.MonthProfit / _summary.MonthIncome * 100):0.0}% margem" : null)" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="A receber pendente" Value="@_summary.PendingReceivables.ToString("C0")"
+                      Icon="@Icons.Material.Filled.Schedule" Color="#f59e0b"
+                      Hint="@(_summary.OverdueAmount > 0 ? $"⚠ {_summary.OverdueAmount:C0} vencido" : null)" />
+        </MudItem>
+    </MudGrid>
+}
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" LoadingProgressColor="Color.Primary"
+              T="TransactionListItemDto">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por título ou cliente..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="TransactionType?" @bind-Value="_typeFilter" @bind-Value:after="Reload"
+                               Label="Tipo" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                        <MudSelectItem T="TransactionType?" Value="null">Todos</MudSelectItem>
+                        <MudSelectItem T="TransactionType?" Value="TransactionType.Income">Receita</MudSelectItem>
+                        <MudSelectItem T="TransactionType?" Value="TransactionType.Expense">Despesa</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudSelect T="TransactionStatus" SelectAll="true" SelectAllText="Todos"
+                               MultiSelection="true" @bind-SelectedValues="_statusFilter" @bind-SelectedValues:after="Reload"
+                               Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="TransactionStatus.Pending">Pendente</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Paid">Pago</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Overdue">Vencido</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Cancelled">Cancelado</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Vencimento</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Categoria</MudTh>
+            <MudTh>Cliente</MudTh>
+            <MudTh>Valor</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:right">Ações</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Vencimento">
+                @context.DueDate.ToString("dd/MM/yyyy")
+                @if (context.IsRecurring) { <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Color="Color.Primary" Class="ml-1" /> }
+            </MudTd>
+            <MudTd DataLabel="Título">
+                <span class="@(context.Type == TransactionType.Income ? "fin-income" : "fin-expense")">
+                    @(context.Type == TransactionType.Income ? "↑" : "↓")
+                </span>
+                <b class="ml-1">@context.Title</b>
+            </MudTd>
+            <MudTd DataLabel="Categoria">
+                @if (context.CategoryName is not null)
+                {
+                    <span class="fin-category-dot" style="@($"background:{context.CategoryColor ?? "#6366f1"}")"></span>
+                    @context.CategoryName
+                }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Cliente">@(context.ClientName ?? "—")</MudTd>
+            <MudTd DataLabel="Valor">
+                <b class="@(context.Type == TransactionType.Income ? "fin-income" : "fin-expense")">
+                    @context.Amount.ToString("C2")
+                </b>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status, context.DueDate)">
+                    @StatusLabel(context.Status, context.DueDate)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Ações" Style="text-align:right">
+                @if (context.Status != TransactionStatus.Paid && context.Status != TransactionStatus.Cancelled)
+                {
+                    <MudTooltip Text="Marcar como pago">
+                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                       Color="Color.Success" OnClick="@(() => MarkPaid(context))" />
+                    </MudTooltip>
+                }
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               OnClick="@(() => OpenForm(context.Id, null))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error" OnClick="@(() => Delete(context))" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum lançamento. Comece criando uma receita ou despesa.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<TransactionListItemDto> _table = null!;
+    private string? _search;
+    private TransactionType? _typeFilter;
+    private IReadOnlyCollection<TransactionStatus> _statusFilter = new HashSet<TransactionStatus>(Enum.GetValues<TransactionStatus>());
+    private bool _loading;
+    private FinancialSummaryDto? _summary;
+
+    protected override async Task OnInitializedAsync() => await LoadSummary();
+
+    private async Task LoadSummary() => _summary = await TxSvc.GetMonthlySummaryAsync();
+
+    private async Task<TableData<TransactionListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await TxSvc.GetPagedAsync(
+                _typeFilter, _statusFilter?.ToList(), null, null, null, _search,
+                state.Page + 1, state.PageSize, token);
+            return new TableData<TransactionListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload()
+    {
+        if (_table is not null) await _table.ReloadServerData();
+        await LoadSummary();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private async Task OpenForm(Guid? id, TransactionType? defaultType)
+    {
+        var parameters = new DialogParameters
+        {
+            ["TransactionId"] = id,
+            ["DefaultType"] = defaultType
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var title = id is null
+            ? (defaultType == TransactionType.Expense ? "Nova Despesa" : "Nova Receita")
+            : "Editar Lançamento";
+        var dlg = await DialogService.ShowAsync<TransactionFormDialog>(title, parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled) await Reload();
+    }
+
+    private async Task MarkPaid(TransactionListItemDto t)
+    {
+        var r = await TxSvc.MarkAsPaidAsync(t.Id, null);
+        if (r.Succeeded)
+        {
+            Snackbar.Add("Marcado como pago.", Severity.Success);
+            await Reload();
+        }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task Delete(TransactionListItemDto t)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir lançamento",
+            $"Excluir \"{t.Title}\" ({t.Amount:C2})?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await TxSvc.DeleteAsync(t.Id);
+        if (r.Succeeded) { Snackbar.Add("Excluído.", Severity.Success); await Reload(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static Color StatusColor(TransactionStatus s, DateTime due)
+    {
+        if (s == TransactionStatus.Paid) return Color.Success;
+        if (s == TransactionStatus.Cancelled) return Color.Default;
+        if (s == TransactionStatus.Overdue || due < DateTime.UtcNow.Date) return Color.Error;
+        return Color.Warning;
+    }
+
+    private static string StatusLabel(TransactionStatus s, DateTime due)
+    {
+        if (s == TransactionStatus.Paid) return "Pago";
+        if (s == TransactionStatus.Cancelled) return "Cancelado";
+        if (s == TransactionStatus.Overdue || (s == TransactionStatus.Pending && due < DateTime.UtcNow.Date)) return "Vencido";
+        return "Pendente";
+    }
+}

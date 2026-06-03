@@ -1,0 +1,375 @@
+@page "/"
+@layout PublicLayout
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Domain.Entities.Tickets
+@using Nexus.Domain.Enums
+@inject IUnitOfWork Uow
+@inject ISnackbar Snackbar
+@inject Nexus.Application.Features.Reviews.ReviewService ReviewSvc
+
+<PageTitle>Gustavo Almeida — Suporte de TI em São Paulo</PageTitle>
+<HeadContent>
+    <meta name="description" content="Suporte técnico de TI em SP — formatação, Wi-Fi, manutenção, recuperação. Preço justo, atendimento humano, sem enrolação." />
+</HeadContent>
+
+<div class="lp4">
+
+    <!-- NAV -->
+    <header class="lp4-nav">
+        <div class="lp4-container lp4-nav-inner">
+            <a href="/" class="lp4-brand">
+                <HexLogomark Letter="G" Size="28" />
+                <span>Gustavo Almeida</span>
+            </a>
+            <nav class="lp4-nav-links">
+                <a href="#servicos">Serviços</a>
+                <a href="#como">Como funciona</a>
+                <a href="#faq">Dúvidas</a>
+            </nav>
+            <div class="lp4-nav-cta">
+                <a href="/login" class="lp4-link-muted">Entrar</a>
+                <a href="@WhatsAppUrl" target="_blank" rel="noopener" class="lp4-btn lp4-btn-primary lp4-btn-sm">Chamar →</a>
+            </div>
+            <button class="lp4-hamburger" @onclick="() => _menuOpen = true" aria-label="Menu">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                    <rect y="4" width="20" height="1.5" rx="0.5"/>
+                    <rect y="10" width="20" height="1.5" rx="0.5"/>
+                    <rect y="16" width="20" height="1.5" rx="0.5"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    @if (_menuOpen)
+    {
+        <div class="lp4-mobile-menu">
+            <button class="lp4-mobile-close" @onclick="() => _menuOpen = false">✕</button>
+            <a href="#servicos" @onclick="() => _menuOpen = false">Serviços</a>
+            <a href="#como" @onclick="() => _menuOpen = false">Como funciona</a>
+            <a href="#faq" @onclick="() => _menuOpen = false">Dúvidas</a>
+            <a href="/login" @onclick="() => _menuOpen = false">Entrar</a>
+            <a href="@WhatsAppUrl" target="_blank" rel="noopener"
+               class="lp4-btn lp4-btn-primary" style="margin-top:16px">Chamar no WhatsApp</a>
+        </div>
+    }
+
+    <!-- HERO -->
+    <section class="lp4-hero">
+        <div class="lp4-hero-bg" aria-hidden="true"></div>
+        <div class="lp4-hero-deco" aria-hidden="true"></div>
+        <div class="lp4-container lp4-hero-inner">
+            <div class="lp4-eyebrow">
+                <span class="lp4-eyebrow-dot"></span>
+                Atendendo agora · São Paulo + remoto
+            </div>
+
+            <h1 class="lp4-h1">
+                Problema de TI?
+                <span class="lp4-text-grad">Eu resolvo.</span>
+            </h1>
+
+            <p class="lp4-lead">
+                Suporte técnico que fala simples, vai atrás da causa
+                e arruma direito. Sem enrolar.
+            </p>
+
+            <div class="lp4-cta-row">
+                <a href="@WhatsAppUrl" class="lp4-btn lp4-btn-primary lp4-btn-lg" target="_blank" rel="noopener">
+                    Chamar no WhatsApp
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </a>
+                <a href="#como" class="lp4-btn lp4-btn-ghost lp4-btn-lg">Como funciona</a>
+            </div>
+
+            <div class="lp4-hero-meta">
+                <span class="lp4-hero-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Resposta em até 1h
+                </span>
+                <span class="lp4-dot-sep" aria-hidden="true">·</span>
+                <span class="lp4-hero-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Orçamento antes
+                </span>
+                <span class="lp4-dot-sep" aria-hidden="true">·</span>
+                <span class="lp4-hero-meta-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Se não resolver, não cobro
+                </span>
+            </div>
+        </div>
+    </section>
+
+    <!-- PROOF STRIP — substitui logos de clientes (que não tem) por stats concretas -->
+    <section class="lp4-proof">
+        <div class="lp4-container">
+            <p class="lp4-proof-label">Atendendo São Paulo · presencial e remoto</p>
+            <div class="lp4-proof-row">
+                <div class="lp4-proof-item">
+                    <div class="lp4-proof-num">1h</div>
+                    <div class="lp4-proof-cap">resposta média no WhatsApp</div>
+                </div>
+                <div class="lp4-proof-divider"></div>
+                <div class="lp4-proof-item">
+                    <div class="lp4-proof-num">2+ anos</div>
+                    <div class="lp4-proof-cap">de TI em chão de fábrica</div>
+                </div>
+                <div class="lp4-proof-divider"></div>
+                <div class="lp4-proof-item">
+                    <div class="lp4-proof-num">100%</div>
+                    <div class="lp4-proof-cap">orçamento antes de mexer</div>
+                </div>
+                <div class="lp4-proof-divider"></div>
+                <div class="lp4-proof-item">
+                    <div class="lp4-proof-num">SP</div>
+                    <div class="lp4-proof-cap">capital · presencial e remoto</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SERVIÇOS em grid compacto (6 cards 1-linha) -->
+    <section id="servicos" class="lp4-section">
+        <div class="lp4-container">
+            <div class="lp4-head">
+                <span class="lp4-tag">O que eu faço</span>
+                <h2 class="lp4-h2">Atendo o cotidiano e a emergência.</h2>
+            </div>
+
+            <div class="lp4-svc-grid">
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                    </div>
+                    <h3>Manutenção de PC</h3>
+                    <p>Formatação, limpeza, otimização. Computador rápido de novo.</p>
+                </div>
+
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/><path d="M2 8.82a15 15 0 0 1 20 0"/>
+                        </svg>
+                    </div>
+                    <h3>Wi-Fi e rede</h3>
+                    <p>Internet caindo, alcance ruim, roteador novo, repetidor.</p>
+                </div>
+
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>
+                        </svg>
+                    </div>
+                    <h3>Recuperação</h3>
+                    <p>HD não abre, arquivos sumiram, pendrive corrompido? Tento antes de cobrar.</p>
+                </div>
+
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </div>
+                    <h3>Suporte remoto</h3>
+                    <p>Coisa rápida pelo WhatsApp ou acesso remoto, sem visita.</p>
+                </div>
+
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                        </svg>
+                    </div>
+                    <h3>Instalação & setup</h3>
+                    <p>Sistema, programas, antivírus, backup automático, configurações.</p>
+                </div>
+
+                <div class="lp4-svc-card">
+                    <div class="lp4-svc-ico">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 21h18"/><path d="M3 7v14"/><path d="M21 7v14"/><path d="M6 21V7l6-4 9 4v14"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/>
+                        </svg>
+                    </div>
+                    <h3>Empresa & fábrica</h3>
+                    <p>Suporte de produção, troubleshooting, infra, redes Linux.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PROMESSAS em faixa fina horizontal -->
+    <section class="lp4-promise-strip">
+        <div class="lp4-container">
+            <div class="lp4-strip">
+                <div class="lp4-strip-item">
+                    <div class="lp4-strip-ico">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                        </svg>
+                    </div>
+                    <div><b>Resposta em 1h</b><span>WhatsApp em horário comercial</span></div>
+                </div>
+                <div class="lp4-strip-item">
+                    <div class="lp4-strip-ico">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </div>
+                    <div><b>Orçamento antes</b><span>Você sabe o preço sem surpresa</span></div>
+                </div>
+                <div class="lp4-strip-item">
+                    <div class="lp4-strip-ico">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>
+                        </svg>
+                    </div>
+                    <div><b>Garantia simples</b><span>Não resolveu, não cobro</span></div>
+                </div>
+                <div class="lp4-strip-item">
+                    <div class="lp4-strip-ico">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+                        </svg>
+                    </div>
+                    <div><b>Vou na sua casa</b><span>SP capital · também remoto</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- COMO FUNCIONA — orçamento personalizado, sem tabela fixa -->
+    <section id="como" class="lp4-section">
+        <div class="lp4-container">
+            <div class="lp4-head">
+                <span class="lp4-tag">Orçamento</span>
+                <h2 class="lp4-h2">Cada caso é um caso.</h2>
+                <p class="lp4-sub">Não trabalho com tabela fixa. Você me conta o problema, eu olho o que precisa e te passo o valor certo. Sem surpresa.</p>
+            </div>
+
+            <div class="lp4-steps">
+                <div class="lp4-step">
+                    <div class="lp4-step-num">01</div>
+                    <h4>Você manda mensagem</h4>
+                    <p>Conta o problema no WhatsApp. Foto, vídeo ou print ajuda. Respondo em até 1h em horário comercial.</p>
+                </div>
+                <div class="lp4-step">
+                    <div class="lp4-step-num">02</div>
+                    <h4>Eu te passo o valor</h4>
+                    <p>Pelo que você descreveu — ou depois de olhar de perto — mando o orçamento fechado. Sem letra miúda.</p>
+                </div>
+                <div class="lp4-step">
+                    <div class="lp4-step-num">03</div>
+                    <h4>Aprovou, eu resolvo</h4>
+                    <p>Se aparecer algo extra no caminho (peça nova, problema oculto), paro e te aviso antes de mexer.</p>
+                </div>
+                <div class="lp4-step">
+                    <div class="lp4-step-num">04</div>
+                    <h4>Não resolveu, não cobro</h4>
+                    <p>Risco zero. Se eu não conseguir resolver, você não paga — e no mínimo te explico o que está acontecendo.</p>
+                </div>
+            </div>
+
+            <div class="lp4-prices-note">
+                Pagamento: <b>Pix, dinheiro ou cartão</b> na hora do atendimento. Pra empresa a gente combina o melhor formato.
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ enxuto: só as 4 perguntas que MAIS travam conversão -->
+    <section id="faq" class="lp4-section lp4-section-alt">
+        <div class="lp4-container lp4-container-narrow">
+            <div class="lp4-head">
+                <span class="lp4-tag">Dúvidas frequentes</span>
+                <h2 class="lp4-h2">O que clientes sempre perguntam.</h2>
+            </div>
+            <div class="lp4-faq">
+                <details>
+                    <summary>Você atende online ou tem que vir aqui?</summary>
+                    <p>Os dois. Coisa simples eu resolvo pelo WhatsApp ou acesso remoto. Pra Wi-Fi, hardware, formatação grande — vou na sua casa em SP capital.</p>
+                </details>
+                <details>
+                    <summary>E se descobrir que tem que trocar peça cara?</summary>
+                    <p>Eu te aviso antes de mexer em qualquer coisa que possa virar custo. Você decide se segue, compra a peça ou desiste. <b>Nunca cobro nada sem você saber e concordar.</b></p>
+                </details>
+                <details>
+                    <summary>Em quanto tempo você vem?</summary>
+                    <p>Coisa urgente (rede inteira fora, máquina parando produção) prioridade no mesmo dia ou no dia seguinte. Manutenção comum normalmente entro em 1-3 dias úteis, conforme sua agenda.</p>
+                </details>
+                <details>
+                    <summary>E se você não conseguir resolver?</summary>
+                    <p>Se eu não resolver, <b>você não paga</b>. Risco zero. No mínimo vou ter te explicado o que está acontecendo e te indicado um caminho.</p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA FINAL — bloco direto, sem form -->
+    <section id="contato" class="lp4-cta-final">
+        <div class="lp4-container">
+            <div class="lp4-cta-card lp4-cta-card-compact">
+                <span class="lp4-tag">Bora resolver</span>
+                <h2 class="lp4-h2">Manda mensagem agora.</h2>
+                <p class="lp4-sub">Te respondo em até 1h em horário comercial com diagnóstico e valor honesto. Sem compromisso.</p>
+
+                <a href="@WhatsAppUrl" class="lp4-btn lp4-btn-primary lp4-btn-lg" target="_blank" rel="noopener" style="margin-top:12px">
+                    Chamar no WhatsApp · (11) 94265-3054
+                </a>
+
+                <div class="lp4-contact-meta">
+                    <span>🕐 Seg-Sex 8h-19h · Sáb 9h-13h</span>
+                    <span class="lp4-dot-sep">·</span>
+                    <span>📍 São Paulo / SP</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="lp4-footer">
+        <div class="lp4-container lp4-footer-inner">
+            <div class="lp4-footer-brand">
+                <HexLogomark Letter="G" Size="24" />
+                <span>Gustavo Almeida · Suporte TI</span>
+            </div>
+            <div class="lp4-footer-meta">
+                <a href="@WhatsAppUrl" target="_blank" rel="noopener">(11) 94265-3054</a>
+                <span>·</span>
+                <span>© @DateTime.Now.Year</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Sticky WhatsApp em mobile -->
+    <a href="@WhatsAppUrl" target="_blank" rel="noopener" class="lp4-sticky" aria-label="WhatsApp">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9-.3-.1-.5-.1-.7.2-.2.3-.8.9-1 1.1-.2.2-.4.2-.7 0-.3-.1-1.2-.5-2.3-1.5-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6.1-.1.3-.4.5-.6.1-.2.2-.4.3-.6.1-.2 0-.4 0-.6 0-.1-.7-1.7-1-2.4-.3-.7-.5-.6-.7-.6h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.3 5.2 4.6.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.4zM12 2C6.5 2 2 6.5 2 12c0 1.7.5 3.4 1.3 4.9L2 22l5.3-1.4c1.4.8 3 1.2 4.7 1.2 5.5 0 10-4.5 10-10S17.5 2 12 2z"/></svg>
+    </a>
+</div>
+
+@code {
+    private const string WhatsAppUrl = "https://wa.me/5511942653054?text=Oi%20Gustavo,%20preciso%20de%20ajuda%20com%20TI";
+
+    private bool _menuOpen;
+
+    public class ContactForm
+    {
+        [Required] public string Name { get; set; } = "";
+        [Required] public string WhatsApp { get; set; } = "";
+        [Required] public string Description { get; set; } = "";
+    }
+}

@@ -1,0 +1,179 @@
+@using Nexus.Application.Features.Clients
+@using Nexus.Application.Features.Financial
+@using Nexus.Domain.Enums
+@inject TransactionService TxSvc
+@inject ClientService ClientSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Type" @bind-Value:after="ReloadCategories"
+                               Label="Tipo *" Variant="Variant.Outlined" Required="true">
+                        <MudSelectItem Value="TransactionType.Income">Receita</MudSelectItem>
+                        <MudSelectItem Value="TransactionType.Expense">Despesa</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Status" Label="Status" Variant="Variant.Outlined">
+                        <MudSelectItem Value="TransactionStatus.Pending">Pendente</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Paid">Pago</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Overdue">Vencido</MudSelectItem>
+                        <MudSelectItem Value="TransactionStatus.Cancelled">Cancelado</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Informe o título" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField @bind-Value="_model.Amount" Label="Valor (R$) *" Required="true"
+                                     Min="0.01m" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.CategoryId" Label="Categoria"
+                               Variant="Variant.Outlined" Clearable="true">
+                        @foreach (var c in _categories)
+                        {
+                            <MudSelectItem T="Guid?" Value="@c.Id">
+                                @c.Name
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudAutocomplete T="ClientListItemDto" Label="Cliente (opcional)"
+                                     SearchFunc="SearchClients" Value="_selectedClient"
+                                     ValueChanged="OnClientChanged"
+                                     ToStringFunc="@(c => c?.Name ?? "")"
+                                     Variant="Variant.Outlined" Clearable="true"
+                                     ResetValueOnEmptyText="true" CoerceText="true" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_dueDate" Label="Data de vencimento *"
+                                   Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.PaymentMethod" Label="Forma de pagamento"
+                                  Variant="Variant.Outlined" Placeholder="Pix, transferência, dinheiro..." />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudSwitch @bind-Value="_model.IsRecurring" Label="Lançamento recorrente"
+                               Color="Color.Primary" />
+                </MudItem>
+                @if (_model.IsRecurring)
+                {
+                    <MudItem xs="12" sm="6">
+                        <MudSelect @bind-Value="_model.RecurrenceType" Label="Frequência"
+                                   Variant="Variant.Outlined">
+                            <MudSelectItem Value="RecurrenceType.Monthly">Mensal</MudSelectItem>
+                            <MudSelectItem Value="RecurrenceType.Weekly">Semanal</MudSelectItem>
+                            <MudSelectItem Value="RecurrenceType.Quarterly">Trimestral</MudSelectItem>
+                            <MudSelectItem Value="RecurrenceType.Yearly">Anual</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                }
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" Label="Notas" Lines="2" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? TransactionId { get; set; }
+    [Parameter] public TransactionType? DefaultType { get; set; }
+
+    private MudForm _form = null!;
+    private TransactionFormDto _model = new();
+    private ClientListItemDto? _selectedClient;
+    private DateTime? _dueDate = DateTime.Today;
+    private bool _saving;
+    private IReadOnlyList<CategoryDto> _categories = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TransactionId is { } id)
+        {
+            var loaded = await TxSvc.GetForEditAsync(id);
+            if (loaded is not null)
+            {
+                _model = loaded;
+                _dueDate = loaded.DueDate;
+                if (loaded.ClientId is not null)
+                {
+                    var page = await ClientSvc.GetPagedAsync(null, 1, 100);
+                    _selectedClient = page.Items.FirstOrDefault(c => c.Id == loaded.ClientId);
+                }
+            }
+        }
+        else if (DefaultType is { } dt)
+        {
+            _model.Type = dt;
+        }
+        await ReloadCategories();
+    }
+
+    private async Task ReloadCategories()
+    {
+        _categories = await TxSvc.GetCategoriesAsync(_model.Type);
+        if (_categories.All(c => c.Id != _model.CategoryId)) _model.CategoryId = null;
+    }
+
+    private async Task<IEnumerable<ClientListItemDto>> SearchClients(string? value, CancellationToken ct)
+    {
+        var page = await ClientSvc.GetPagedAsync(value, 1, 10, ct);
+        return page.Items;
+    }
+
+    private void OnClientChanged(ClientListItemDto? c)
+    {
+        _selectedClient = c;
+        _model.ClientId = c?.Id;
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        if (_dueDate is null) { Snackbar.Add("Informe a data de vencimento.", Severity.Warning); return; }
+        _model.DueDate = _dueDate.Value;
+
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await TxSvc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Lançamento atualizado.", Severity.Success);
+            }
+            else
+            {
+                var r = await TxSvc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Lançamento criado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

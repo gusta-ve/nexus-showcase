@@ -1,0 +1,159 @@
+@using Nexus.Application.Features.Servers
+@using Nexus.Domain.Enums
+@inject ServersService Svc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Name" Label="Nome *" Required="true"
+                                  RequiredError="Informe o nome" Variant="Variant.Outlined"
+                                  HelperText="Ex: VPS Hetzner Nuremberg · Homelab Proxmox · Roteador escritório" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect @bind-Value="_model.Type" Label="Tipo" Variant="Variant.Outlined">
+                        <MudSelectItem Value="ServerType.VPS">VPS</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Dedicated">Dedicado</MudSelectItem>
+                        <MudSelectItem Value="ServerType.HomeServer">Homelab</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Container">Container</MudSelectItem>
+                        <MudSelectItem Value="ServerType.VirtualMachine">VM</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Cloud">Cloud</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Hostname" Label="Hostname" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.PublicIp" Label="IP público" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="_model.IpAddress" Label="IP interno" Variant="Variant.Outlined" />
+                </MudItem>
+
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.OperatingSystem" Label="SO" Variant="Variant.Outlined"
+                                  Placeholder="Ubuntu 24.04" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.Provider" Label="Provedor" Variant="Variant.Outlined"
+                                  Placeholder="Hetzner / OCI / casa" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.Location" Label="Localização" Variant="Variant.Outlined"
+                                  Placeholder="Nuremberg / SP / Casa" />
+                </MudItem>
+
+                <MudItem xs="12" sm="4">
+                    <MudNumericField @bind-Value="_model.CpuCores" Label="vCPU" Min="0" Max="256"
+                                     Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField @bind-Value="_model.RamGb" Label="RAM (GB)" Min="0" Max="4096"
+                                     Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField @bind-Value="_model.StorageGb" Label="Disco (GB)" Min="0" Max="1048576"
+                                     Variant="Variant.Outlined" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.SshUser" Label="Usuário SSH" Variant="Variant.Outlined"
+                                  HelperText="Credenciais reais ficam no Cofre" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.SshPort" Label="Porta SSH" Variant="Variant.Outlined"
+                                  Placeholder="22" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_model.MonitoringEnabled" Label="Habilitar monitoramento (health check a cada 5 min)"
+                               Color="Color.Primary" />
+                </MudItem>
+                @if (_model.MonitoringEnabled)
+                {
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_model.HealthCheckUrl" Label="URL de health check (HTTP)"
+                                      Variant="Variant.Outlined"
+                                      HelperText="Se vazio, faz TCP ping no IP público + porta SSH" />
+                    </MudItem>
+                }
+
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.MonthlyCost" Label="Custo mensal (R$)"
+                                     Min="0" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_renewalDate" Label="Próxima renovação"
+                                   Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" Clearable="true" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags (separadas por vírgula)"
+                                  Variant="Variant.Outlined" Placeholder="prod, cliente-x, homelab" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" Label="Observações" Lines="2"
+                                  Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? ServerId { get; set; }
+
+    private MudForm _form = null!;
+    private ServerFormDto _model = new();
+    private DateTime? _renewalDate;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ServerId is { } id)
+        {
+            var loaded = await Svc.GetForEditAsync(id);
+            if (loaded is not null)
+            {
+                _model = loaded;
+                _renewalDate = loaded.RenewalDate;
+            }
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _model.RenewalDate = _renewalDate;
+
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await Svc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Servidor atualizado.", Severity.Success);
+            }
+            else
+            {
+                var r = await Svc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Servidor criado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

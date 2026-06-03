@@ -1,0 +1,335 @@
+@page "/chamados/{Id:guid}"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Tickets
+@using Nexus.Domain.Enums
+@inject TicketService TicketSvc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>@(_data?.Number ?? "Chamado") — Nexus</PageTitle>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <div class="nexus-breadcrumb"><a href="/chamados">← Chamados</a></div>
+            <h1 class="nexus-h1"><code>@_data.Number</code> · @_data.Title</h1>
+            <div class="nexus-sub">
+                Aberto em @_data.CreatedAt.ToString("dd/MM/yyyy HH:mm")
+                @if (_data.IsFromPublic) { <span>· via landing pública</span> }
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit"
+                       OnClick="OpenEdit">Editar</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.Delete" OnClick="Delete">Excluir</MudButton>
+        </div>
+    </div>
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="8">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <div class="ticket-chips">
+                    <MudChip T="string" Size="Size.Medium" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                    <MudChip T="string" Size="Size.Medium" Color="PriorityColor(_data.Priority)">@PriorityLabel(_data.Priority)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@CategoryLabel(_data.Category)</MudChip>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_data.Description))
+                {
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2">Descrição</MudText>
+                    <div class="ticket-desc">@_data.Description</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_data.Resolution))
+                {
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2" Style="color:var(--nx-success)">✓ Resolução</MudText>
+                    <div class="ticket-desc">@_data.Resolution</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_data.InternalNotes))
+                {
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2" Style="color:var(--nx-warning)">🔒 Notas internas</MudText>
+                    <div class="ticket-desc">@_data.InternalNotes</div>
+                }
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Comentários (@_data.Comments.Count)</MudText>
+
+                @if (_data.Comments.Count == 0)
+                {
+                    <div class="nexus-empty">Nenhum comentário ainda.</div>
+                }
+                else
+                {
+                    @foreach (var c in _data.Comments)
+                    {
+                        <div class="ticket-comment @(c.IsInternal ? "internal" : "") @(c.IsFromClient ? "from-client" : "")">
+                            <div class="ticket-comment-head">
+                                <b>@(c.AuthorName ?? "—")</b>
+                                @if (c.IsFromClient) { <span class="badge badge-info">cliente</span> }
+                                @if (c.IsInternal) { <span class="badge badge-warning">interno</span> }
+                                <span class="ticket-comment-time">@c.CreatedAt.ToString("dd/MM HH:mm")</span>
+                            </div>
+                            <div class="ticket-comment-body">@c.Content</div>
+                        </div>
+                    }
+                }
+
+                <MudDivider Class="my-4" />
+                <MudTextField @bind-Value="_newComment" Label="Adicionar comentário" Lines="3"
+                              Variant="Variant.Outlined" MaxLength="5000" />
+                <div class="d-flex align-center mt-2 gap-2" style="display:flex;gap:8px;align-items:center">
+                    <MudSwitch @bind-Value="_commentInternal" Label="Interno (só eu vejo)" Color="Color.Warning" />
+                    <MudSpacer />
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                               OnClick="AddComment" Disabled="@(_addingComment || string.IsNullOrWhiteSpace(_newComment))">
+                        @(_addingComment ? "Adicionando..." : "Adicionar")
+                    </MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Workflow</MudText>
+                <div class="d-flex flex-column" style="display:flex;flex-direction:column;gap:8px">
+                    @foreach (var action in NextActions(_data.Status))
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="@action.Color"
+                                   StartIcon="@action.Icon"
+                                   OnClick="@(() => action.Run(this))">
+                            @action.Label
+                        </MudButton>
+                    }
+                </div>
+
+                @if (_data.ServiceValue is not null)
+                {
+                    <MudDivider Class="my-3" />
+                    <div class="ticket-meta">
+                        <span>Valor do serviço</span>
+                        <b>@_data.ServiceValue.Value.ToString("C2")</b>
+                    </div>
+                }
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Contato</MudText>
+                @if (_data.ClientName is not null)
+                {
+                    <div class="ticket-meta"><span>Cliente</span>
+                        <a href="/clientes">@_data.ClientName</a>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_data.ContactName))
+                { <div class="ticket-meta"><span>Nome</span><b>@_data.ContactName</b></div> }
+                @if (!string.IsNullOrWhiteSpace(_data.ContactWhatsApp))
+                { <div class="ticket-meta"><span>WhatsApp</span><b>@_data.ContactWhatsApp</b></div> }
+                @if (!string.IsNullOrWhiteSpace(_data.ContactPhone))
+                { <div class="ticket-meta"><span>Telefone</span><b>@_data.ContactPhone</b></div> }
+                @if (!string.IsNullOrWhiteSpace(_data.ContactEmail))
+                { <div class="ticket-meta"><span>Email</span><b>@_data.ContactEmail</b></div> }
+                @if (!string.IsNullOrWhiteSpace(_data.PreferredTime))
+                { <div class="ticket-meta"><span>Melhor horário</span><b>@_data.PreferredTime</b></div> }
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Timeline</MudText>
+                <div class="ticket-meta"><span>Criado</span><b>@_data.CreatedAt.ToString("dd/MM HH:mm")</b></div>
+                @if (_data.StartedAt is not null)
+                { <div class="ticket-meta"><span>Iniciado</span><b>@_data.StartedAt?.ToString("dd/MM HH:mm")</b></div> }
+                @if (_data.ResolvedAt is not null)
+                { <div class="ticket-meta"><span>Resolvido</span><b>@_data.ResolvedAt?.ToString("dd/MM HH:mm")</b></div> }
+                @if (_data.ClosedAt is not null)
+                { <div class="ticket-meta"><span>Fechado</span><b>@_data.ClosedAt?.ToString("dd/MM HH:mm")</b></div> }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private TicketDetailDto? _data;
+    private string _newComment = "";
+    private bool _commentInternal;
+    private bool _addingComment;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load() => _data = await TicketSvc.GetDetailAsync(Id);
+
+    private async Task AddComment()
+    {
+        if (string.IsNullOrWhiteSpace(_newComment)) return;
+        _addingComment = true;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var name = auth.User.Identity?.Name;
+            var r = await TicketSvc.AddCommentAsync(Id, new AddCommentDto
+            {
+                Content = _newComment,
+                IsInternal = _commentInternal
+            }, name);
+            if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            _newComment = "";
+            _commentInternal = false;
+            await Load();
+        }
+        finally { _addingComment = false; }
+    }
+
+    private async Task ChangeStatus(TicketStatus newStatus, string okMsg)
+    {
+        var r = await TicketSvc.ChangeStatusAsync(Id, newStatus);
+        if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+        Snackbar.Add(okMsg, Severity.Success);
+        await Load();
+    }
+
+    private async Task Resolve()
+    {
+        var dlg = await DialogService.ShowAsync<ResolveTicketDialog>("Resolver chamado",
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var res = await dlg.Result;
+        if (res is null || res.Canceled || res.Data is not ResolveTicketDto dto) return;
+        var r = await TicketSvc.ResolveAsync(Id, dto);
+        if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+        Snackbar.Add("Chamado resolvido.", Severity.Success);
+        await Load();
+    }
+
+    private async Task OpenEdit()
+    {
+        var parameters = new DialogParameters { ["TicketId"] = Id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<TicketFormDialog>("Editar Chamado", parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled) await Load();
+    }
+
+    private async Task Delete()
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir chamado",
+            $"Tem certeza que deseja excluir o chamado {_data!.Number}?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await TicketSvc.DeleteAsync(Id);
+        if (r.Succeeded) { Snackbar.Add("Excluído.", Severity.Success); Nav.NavigateTo("/chamados"); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private record WorkflowAction(string Label, string Icon, Color Color, Func<TicketDetail, Task> Run);
+
+    private static IEnumerable<WorkflowAction> NextActions(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => new[]
+        {
+            new WorkflowAction("Iniciar análise", Icons.Material.Filled.Search, Color.Warning,
+                t => t.ChangeStatus(TicketStatus.Analyzing, "Status: em análise")),
+            new WorkflowAction("Iniciar atendimento", Icons.Material.Filled.PlayArrow, Color.Primary,
+                t => t.ChangeStatus(TicketStatus.InProgress, "Atendimento iniciado")),
+            new WorkflowAction("Cancelar", Icons.Material.Filled.Cancel, Color.Error,
+                t => t.ChangeStatus(TicketStatus.Cancelled, "Cancelado"))
+        },
+        TicketStatus.Analyzing => new[]
+        {
+            new WorkflowAction("Iniciar atendimento", Icons.Material.Filled.PlayArrow, Color.Primary,
+                t => t.ChangeStatus(TicketStatus.InProgress, "Atendimento iniciado"))
+        },
+        TicketStatus.InProgress => new[]
+        {
+            new WorkflowAction("Aguardando cliente", Icons.Material.Filled.HourglassEmpty, Color.Tertiary,
+                t => t.ChangeStatus(TicketStatus.WaitingClient, "Aguardando cliente")),
+            new WorkflowAction("Marcar como resolvido", Icons.Material.Filled.CheckCircle, Color.Success,
+                t => t.Resolve())
+        },
+        TicketStatus.WaitingClient => new[]
+        {
+            new WorkflowAction("Retomar atendimento", Icons.Material.Filled.PlayArrow, Color.Primary,
+                t => t.ChangeStatus(TicketStatus.InProgress, "Atendimento retomado")),
+            new WorkflowAction("Marcar como resolvido", Icons.Material.Filled.CheckCircle, Color.Success,
+                t => t.Resolve())
+        },
+        TicketStatus.Resolved => new[]
+        {
+            new WorkflowAction("Fechar chamado", Icons.Material.Filled.Lock, Color.Default,
+                t => t.ChangeStatus(TicketStatus.Closed, "Fechado")),
+            new WorkflowAction("Reabrir", Icons.Material.Filled.LockOpen, Color.Warning,
+                t => t.ChangeStatus(TicketStatus.InProgress, "Reaberto"))
+        },
+        TicketStatus.Closed or TicketStatus.Cancelled => new[]
+        {
+            new WorkflowAction("Reabrir", Icons.Material.Filled.LockOpen, Color.Warning,
+                t => t.ChangeStatus(TicketStatus.Open, "Reaberto"))
+        },
+        _ => Array.Empty<WorkflowAction>()
+    };
+
+    private static Color StatusColor(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => Color.Info,
+        TicketStatus.Analyzing => Color.Warning,
+        TicketStatus.InProgress => Color.Primary,
+        TicketStatus.WaitingClient => Color.Tertiary,
+        TicketStatus.Resolved => Color.Success,
+        TicketStatus.Closed => Color.Default,
+        TicketStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Aberto",
+        TicketStatus.Analyzing => "Em análise",
+        TicketStatus.InProgress => "Em andamento",
+        TicketStatus.WaitingClient => "Aguardando cliente",
+        TicketStatus.Resolved => "Resolvido",
+        TicketStatus.Closed => "Fechado",
+        TicketStatus.Cancelled => "Cancelado",
+        _ => s.ToString()
+    };
+
+    private static Color PriorityColor(TicketPriority p) => p switch
+    {
+        TicketPriority.Critical => Color.Error,
+        TicketPriority.High => Color.Warning,
+        TicketPriority.Medium => Color.Info,
+        TicketPriority.Low => Color.Default,
+        _ => Color.Default
+    };
+
+    private static string PriorityLabel(TicketPriority p) => p switch
+    {
+        TicketPriority.Critical => "Crítica",
+        TicketPriority.High => "Alta",
+        TicketPriority.Medium => "Média",
+        TicketPriority.Low => "Baixa",
+        _ => p.ToString()
+    };
+
+    private static string CategoryLabel(TicketCategory c) => c switch
+    {
+        TicketCategory.Support => "Suporte",
+        TicketCategory.Network => "Redes",
+        TicketCategory.Infrastructure => "Infraestrutura",
+        TicketCategory.Security => "Segurança",
+        TicketCategory.Development => "Desenvolvimento",
+        TicketCategory.Automation => "Automação",
+        TicketCategory.Hardware => "Hardware",
+        TicketCategory.Software => "Software",
+        TicketCategory.Consulting => "Consultoria",
+        _ => "Outro"
+    };
+}

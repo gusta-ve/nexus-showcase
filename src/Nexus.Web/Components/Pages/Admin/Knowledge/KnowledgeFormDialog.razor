@@ -1,0 +1,89 @@
+@using Nexus.Application.Features.Knowledge
+@inject KnowledgeService Svc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Obrigatório" Variant="Variant.Outlined" MaxLength="200" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Summary" Label="Resumo (opcional)"
+                                  Variant="Variant.Outlined" Lines="2"
+                                  HelperText="Frase curta que aparece na listagem" MaxLength="1000" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Category" Label="Categoria"
+                                  Variant="Variant.Outlined"
+                                  HelperText="ex: Linux, Windows, Redes, PostgreSQL" MaxLength="100" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags (separadas por vírgula)"
+                                  Variant="Variant.Outlined"
+                                  HelperText="ex: ssh, fail2ban, hardening" MaxLength="500" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Content" Label="Conteúdo *" Required="true"
+                                  Variant="Variant.Outlined" Lines="18"
+                                  HelperText="Markdown ou texto livre. Comandos em ```bash ... ```"
+                                  Style="font-family: 'JetBrains Mono', monospace; font-size: 13px;"
+                                  MaxLength="100000" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_model.IsPinned" Label="Fixar no topo" Color="Color.Warning" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? ArticleId { get; set; }
+
+    private MudForm _form = null!;
+    private KnowledgeFormDto _model = new();
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ArticleId is { } id)
+        {
+            var loaded = await Svc.GetForEditAsync(id);
+            if (loaded is not null) _model = loaded;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await Svc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Artigo atualizado.", Severity.Success);
+            }
+            else
+            {
+                var r = await Svc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Artigo criado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

@@ -1,0 +1,36 @@
+@*
+    Hexagonal monogram inspirado no cartão.
+    Usado em login, headers de landing/portal/admin.
+    Parâmetros: Letter (G ou N), Size em px.
+*@
+
+<div class="hex-logo" style="@($"width:{Size}px;height:{Size}px")">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" class="hex-glow" aria-hidden="true">
+        <defs>
+            <linearGradient id="hexStroke" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="@PrimaryColor" />
+                <stop offset="100%" stop-color="@SecondaryColor" />
+            </linearGradient>
+        </defs>
+        <polygon points="50,4 92,27 92,73 50,96 8,73 8,27"
+                 fill="none" stroke="url(#hexStroke)" stroke-width="3" />
+        @if (ShowCircuit)
+        {
+            <!-- Linhas de circuito sutis dentro do hex (assinatura visual) -->
+            <path d="M 20 50 L 38 50 L 42 46 L 42 32" stroke="@PrimaryColor" stroke-width="1" fill="none" opacity="0.55"/>
+            <circle cx="42" cy="30" r="1.6" fill="@PrimaryColor" />
+            <path d="M 80 50 L 62 50 L 58 54 L 58 68" stroke="@PrimaryColor" stroke-width="1" fill="none" opacity="0.55"/>
+            <circle cx="58" cy="70" r="1.6" fill="@PrimaryColor" />
+        }
+    </svg>
+    <span class="hex-logo-letter @(Size >= 56 ? "lg" : "")"
+          style="@($"font-size:{(int)(Size * 0.42)}px")">@Letter</span>
+</div>
+
+@code {
+    [Parameter] public string Letter { get; set; } = "G";
+    [Parameter] public int Size { get; set; } = 36;
+    [Parameter] public bool ShowCircuit { get; set; } = true;
+    [Parameter] public string PrimaryColor { get; set; } = "#00c2ff";
+    [Parameter] public string SecondaryColor { get; set; } = "#58d8ff";
+}

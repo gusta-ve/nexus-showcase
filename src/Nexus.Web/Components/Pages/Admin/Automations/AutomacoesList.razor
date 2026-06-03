@@ -1,0 +1,139 @@
+@page "/automacoes"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Automation
+@inject AutomationService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Automações · Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1 nx-display">AUTOMAÇÕES</h1>
+        <p class="nexus-sub">Log de webhooks recebidos e eventos automatizados</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            Endpoint: <code style="color:var(--nx-primary);font-size:11px">POST /api/webhooks/{'{'}nome{'}'}</code>
+        </MudText>
+        @if (_logs.Any())
+        {
+            <MudButton Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAll">Limpar tudo</MudButton>
+        }
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Default" OnClick="Reload" />
+    </div>
+</div>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (!_logs.Any())
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <div class="nexus-empty">
+            <MudIcon Icon="@Icons.Material.Filled.Bolt" Style="font-size:40px;opacity:0.2;display:block;margin:0 auto 12px" />
+            <div>Nenhum log ainda.</div>
+            <div style="margin-top:8px;font-size:12px">
+                Chame <code style="color:var(--nx-primary)">POST https://gustavoti.com/api/webhooks/meu-evento</code> com qualquer payload JSON.
+            </div>
+        </div>
+    </MudPaper>
+}
+else
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <MudTable Items="_logs" Hover="true" Dense="true" Elevation="0"
+                  OnRowClick="@(e => { if (e.Item is not null) _ = OpenDetail(e.Item); })" T="AutomationLogDto">
+            <HeaderContent>
+                <MudTh>Nome</MudTh>
+                <MudTh>Origem</MudTh>
+                <MudTh>Tipo</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Duração</MudTh>
+                <MudTh>Recebido</MudTh>
+                <MudTh Style="width:48px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><b>@context.Name</b></MudTd>
+                <MudTd><span style="font-size:12px;color:var(--nx-text-3);font-family:'JetBrains Mono',monospace">@context.Source</span></MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrWhiteSpace(context.TriggerType))
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Style="font-size:11px;font-family:'JetBrains Mono',monospace">@context.TriggerType</MudChip>
+                    }
+                </MudTd>
+                <MudTd>@StatusChip(context.Status)</MudTd>
+                <MudTd>
+                    @if (context.DurationMs.HasValue)
+                    {
+                        <span style="font-size:12px;color:var(--nx-text-3)">@context.DurationMs ms</span>
+                    }
+                </MudTd>
+                <MudTd><span style="font-size:12px;color:var(--nx-text-3)">@context.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm:ss")</span></MudTd>
+                <MudTd>
+                    <div @onclick:stopPropagation="true">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       Color="Color.Error" OnClick="@(() => DeleteLog(context))" />
+                    </div>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    private List<AutomationLogDto> _logs = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        _loading = true;
+        _logs = await Svc.GetLogsAsync();
+        _loading = false;
+    }
+
+    private async Task OpenDetail(AutomationLogDto dto)
+    {
+        var log = await Svc.GetDetailAsync(dto.Id);
+        if (log is null) return;
+
+        var parameters = new DialogParameters<AutomationLogDetailDialog>
+        {
+            { x => x.Log, log }
+        };
+        await DialogService.ShowAsync<AutomationLogDetailDialog>(dto.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true });
+    }
+
+    private async Task DeleteLog(AutomationLogDto dto)
+    {
+        await Svc.DeleteAsync(dto.Id);
+        _logs.Remove(dto);
+        Snackbar.Add("Log removido.", Severity.Info);
+    }
+
+    private async Task ClearAll()
+    {
+        var result = await DialogService.ShowMessageBoxAsync("Limpar logs",
+            "Remove todos os logs de automação. Confirma?",
+            yesText: "Limpar tudo", cancelText: "Cancelar");
+        if (result != true) return;
+        await Svc.ClearAllAsync();
+        _logs.Clear();
+        Snackbar.Add("Logs limpos.", Severity.Success);
+    }
+
+    private RenderFragment StatusChip(string status) => status switch
+    {
+        "Success" => @<MudChip T="string" Size="Size.Small" Color="Color.Success">Sucesso</MudChip>,
+        "Failed"  => @<MudChip T="string" Size="Size.Small" Color="Color.Error">Falha</MudChip>,
+        "Running" => @<MudChip T="string" Size="Size.Small" Color="Color.Warning">Executando</MudChip>,
+        _         => @<MudChip T="string" Size="Size.Small" Color="Color.Default">@status</MudChip>,
+    };
+}

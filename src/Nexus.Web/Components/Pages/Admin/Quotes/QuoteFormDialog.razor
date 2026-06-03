@@ -1,0 +1,132 @@
+@using Nexus.Application.Features.Clients
+@using Nexus.Application.Features.Quotes
+@inject QuoteService QuoteSvc
+@inject ClientService ClientSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Obrigatório" Variant="Variant.Outlined"
+                                  Placeholder="Ex: Manutenção preventiva semestral · Configuração de rede" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudAutocomplete T="ClientListItemDto" Label="Cliente (opcional)"
+                                     SearchFunc="SearchClients" Value="_selectedClient"
+                                     ValueChanged="OnClientChanged"
+                                     ToStringFunc="@(c => c?.Name ?? "")"
+                                     Variant="Variant.Outlined" Clearable="true"
+                                     ResetValueOnEmptyText="true" CoerceText="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_validUntil" Label="Válido até"
+                                   Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" Clearable="true" />
+                </MudItem>
+                @if (_model.ClientId is null)
+                {
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_model.ClientNameOverride" Label="Nome do contato (se não tiver cliente cadastrado)"
+                                      Variant="Variant.Outlined" />
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição / escopo"
+                                  Lines="3" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Discount" Label="Desconto (R$)"
+                                     Min="0" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Tax" Label="Impostos / acréscimos (R$)"
+                                     Min="0" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" Label="Observações" Lines="2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Terms" Label="Condições / termos" Lines="3"
+                                  Variant="Variant.Outlined"
+                                  Placeholder="Ex: Pagamento 50% início + 50% entrega · Validade 15 dias" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? QuoteId { get; set; }
+
+    private MudForm _form = null!;
+    private QuoteFormDto _model = new();
+    private DateTime? _validUntil;
+    private ClientListItemDto? _selectedClient;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (QuoteId is { } id)
+        {
+            var loaded = await QuoteSvc.GetForEditAsync(id);
+            if (loaded is not null)
+            {
+                _model = loaded;
+                _validUntil = loaded.ValidUntil;
+                if (loaded.ClientId is not null)
+                {
+                    var page = await ClientSvc.GetPagedAsync(null, 1, 100);
+                    _selectedClient = page.Items.FirstOrDefault(c => c.Id == loaded.ClientId);
+                }
+            }
+        }
+    }
+
+    private async Task<IEnumerable<ClientListItemDto>> SearchClients(string? v, CancellationToken ct)
+    {
+        var page = await ClientSvc.GetPagedAsync(v, 1, 10, ct);
+        return page.Items;
+    }
+
+    private void OnClientChanged(ClientListItemDto? c)
+    {
+        _selectedClient = c;
+        _model.ClientId = c?.Id;
+        if (c is not null) _model.ClientNameOverride = null;
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _model.ValidUntil = _validUntil;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await QuoteSvc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Orçamento atualizado.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(id));
+            }
+            else
+            {
+                var r = await QuoteSvc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Orçamento criado. Adicione os itens.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(r.Value));
+            }
+        }
+        finally { _saving = false; }
+    }
+}

@@ -1,0 +1,180 @@
+@page "/avaliacoes"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Reviews
+@inject ReviewService Svc
+@inject IDialogService Dialog
+@inject ISnackbar Snackbar
+
+<PageTitle>Avaliações · Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1 nx-display">AVALIAÇÕES</h1>
+        <p class="nexus-sub">O que os clientes acharam do atendimento — aprove as boas pra aparecer na landing</p>
+    </div>
+</div>
+
+@if (_stats is not null && _stats.Total > 0)
+{
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="nexus-panel nexus-stat-card" Elevation="0">
+                <div class="nexus-stat-label">Média geral</div>
+                <div class="nexus-stat-value" style="display:flex;align-items:baseline;gap:8px">
+                    <span style="color:#00c2ff">@_stats.Average.ToString("0.0")</span>
+                    <span style="font-size:18px;color:#5a6a75">/ 5</span>
+                </div>
+                <div class="nexus-stat-hint">@_stats.Total avaliação(ões)</div>
+            </MudPaper>
+        </MudItem>
+        @foreach (var (label, count, color) in new[]
+        {
+            ("5★", _stats.Count5, "#22c55e"),
+            ("4★", _stats.Count4, "#06b6d4"),
+            ("≤3★", _stats.Count3 + _stats.Count2 + _stats.Count1, "#f59e0b")
+        })
+        {
+            <MudItem xs="6" sm="4" md="3">
+                <MudPaper Class="nexus-panel nexus-stat-card" Elevation="0">
+                    <div class="nexus-stat-label">@label</div>
+                    <div class="nexus-stat-value" style="color:@color">@count</div>
+                    <div class="nexus-stat-hint">@(_stats.Total > 0 ? $"{count * 100 / _stats.Total}%" : "0%") do total</div>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+<MudPaper Class="nexus-panel mb-3" Elevation="0">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <MudSwitch Value="_unapprovedOnly" Color="Color.Warning"
+                   Label="Mostrar só não-aprovadas" T="bool"
+                   ValueChanged="OnFilterChanged" />
+        <MudSpacer />
+        <span style="font-size:12px;color:#a1a1aa">
+            Reviews aprovadas (4-5★) aparecem na landing pública.
+        </span>
+    </div>
+</MudPaper>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="false" Elevation="0"
+              Class="nexus-table" Loading="_loading" T="ReviewListItemDto">
+        <HeaderContent>
+            <MudTh Style="width:90px">Rating</MudTh>
+            <MudTh>Avaliação</MudTh>
+            <MudTh Style="width:160px">Cliente / chamado</MudTh>
+            <MudTh Style="width:110px">Quando</MudTh>
+            <MudTh Style="width:200px;text-align:right">Ações</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <span style="color:#fbbf24;font-size:18px;letter-spacing:1px">
+                    @(new string('★', context.Rating))<span style="opacity:0.25">@(new string('★', 5 - context.Rating))</span>
+                </span>
+            </MudTd>
+            <MudTd>
+                <div><b>@context.ReviewerName</b></div>
+                @if (!string.IsNullOrWhiteSpace(context.Comment))
+                {
+                    <div style="font-size:13px;color:#cbd5e1;margin-top:4px;font-style:italic">"@context.Comment"</div>
+                }
+                else
+                {
+                    <div style="font-size:12px;color:#5a6a75">(sem comentário)</div>
+                }
+            </MudTd>
+            <MudTd>
+                <div style="font-size:13px">@(context.ClientName ?? "—")</div>
+                @if (!string.IsNullOrWhiteSpace(context.TicketNumber))
+                {
+                    <code style="font-size:11px;color:#5a6a75">@context.TicketNumber</code>
+                }
+            </MudTd>
+            <MudTd Style="font-size:12px;color:#a1a1aa">@context.CreatedAt.ToString("dd/MM/yyyy")</MudTd>
+            <MudTd Style="text-align:right">
+                @if (context.IsApproved)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Aprovada</MudChip>
+                }
+                else if (context.IsPublic && context.Rating >= 4)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success"
+                               OnClick="@(() => ToggleApproved(context))">Aprovar</MudButton>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                        @(context.Rating < 4 ? "≤3★" : "Privada")
+                    </MudChip>
+                }
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error" OnClick="@(() => Delete(context))" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhuma avaliação ainda. Quando você resolver um chamado, o cliente pode avaliar pelo portal.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<ReviewListItemDto> _table = null!;
+    private bool _loading;
+    private bool _unapprovedOnly;
+    private ReviewStatsDto? _stats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await Svc.GetStatsAsync();
+    }
+
+    private async Task<TableData<ReviewListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await Svc.GetPagedAsync(_unapprovedOnly, state.Page + 1, state.PageSize, token);
+            return new TableData<ReviewListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload()
+    {
+        _stats = await Svc.GetStatsAsync();
+        if (_table is not null) await _table.ReloadServerData();
+    }
+
+    private async Task OnFilterChanged(bool value)
+    {
+        _unapprovedOnly = value;
+        await Reload();
+    }
+
+    private async Task ToggleApproved(ReviewListItemDto r)
+    {
+        var res = await Svc.ToggleApprovedAsync(r.Id);
+        if (res.Succeeded)
+        {
+            Snackbar.Add(r.IsApproved ? "Despublicada." : "Aprovada e publicada na landing.", Severity.Success);
+            await Reload();
+        }
+        else Snackbar.Add(res.Error!, Severity.Error);
+    }
+
+    private async Task Delete(ReviewListItemDto r)
+    {
+        var ok = await Dialog.ShowMessageBoxAsync("Apagar avaliação",
+            $"Confirma apagar a avaliação de {r.ReviewerName}?",
+            yesText: "Apagar", cancelText: "Cancelar");
+        if (ok != true) return;
+        var res = await Svc.DeleteAsync(r.Id);
+        if (res.Succeeded) { Snackbar.Add("Apagada.", Severity.Info); await Reload(); }
+        else Snackbar.Add(res.Error!, Severity.Error);
+    }
+}

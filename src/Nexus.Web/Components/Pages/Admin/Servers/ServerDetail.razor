@@ -1,0 +1,228 @@
+@page "/servidores/{Id:guid}"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Servers
+@using Nexus.Domain.Enums
+@inject ServersService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_data?.Name ?? "Servidor") · Nexus</PageTitle>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_data is null)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <MudText>Servidor não encontrado.</MudText>
+        <MudButton Href="/servidores" Class="mt-3" Variant="Variant.Outlined">Voltar</MudButton>
+    </MudPaper>
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <div class="nexus-breadcrumb"><a href="/servidores">← Servidores</a></div>
+            <h1 class="nexus-h1">
+                <span class="@($"srv-dot srv-dot-{StatusClass(_data.Status)}")"></span>
+                @_data.Name
+            </h1>
+            <div class="nexus-sub">
+                @TypeLabel(_data.Type)@(string.IsNullOrWhiteSpace(_data.Provider) ? "" : $" · {_data.Provider}")
+                @(_data.LastCheckedAt is null ? "" : $" · último check {_data.LastCheckedAt:dd/MM HH:mm}")
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit"
+                       OnClick="OpenEdit">Editar</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.Delete" OnClick="Delete">Excluir</MudButton>
+        </div>
+    </div>
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="7">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Servidor</MudText>
+                <div class="ticket-meta"><span>Hostname</span><b><code>@(_data.Hostname ?? "—")</code></b></div>
+                <div class="ticket-meta"><span>IP público</span><b><code>@(_data.PublicIp ?? "—")</code></b></div>
+                <div class="ticket-meta"><span>IP interno</span><b><code>@(_data.IpAddress ?? "—")</code></b></div>
+                <div class="ticket-meta"><span>Sistema</span><b>@(_data.OperatingSystem ?? "—")</b></div>
+                <div class="ticket-meta"><span>Localização</span><b>@(_data.Location ?? "—")</b></div>
+                <div class="ticket-meta"><span>vCPU / RAM / Disco</span>
+                    <b>@($"{_data.CpuCores?.ToString() ?? "—"} / {(_data.RamGb is int r ? r + "GB" : "—")} / {(_data.StorageGb is int d ? d + "GB" : "—")}")</b>
+                </div>
+                <div class="ticket-meta"><span>SSH</span><b><code>@(_data.SshUser is string u ? $"{u}@{_data.PublicIp ?? _data.Hostname ?? "host"}:{_data.SshPort ?? "22"}" : "—")</code></b></div>
+                @if (!string.IsNullOrWhiteSpace(_data.Tags))
+                { <div class="ticket-meta"><span>Tags</span><b>@_data.Tags</b></div> }
+                @if (!string.IsNullOrWhiteSpace(_data.Notes))
+                {
+                    <MudDivider Class="my-3" />
+                    <MudText Typo="Typo.subtitle2">Notas</MudText>
+                    <div class="ticket-desc">@_data.Notes</div>
+                }
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <div style="display:flex;align-items:center;margin-bottom:12px">
+                    <MudText Typo="Typo.h6">Serviços rodando (@_data.Services.Count)</MudText>
+                    <MudSpacer />
+                    <MudButton Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="@(() => OpenServiceForm(null))">Adicionar</MudButton>
+                </div>
+                @if (_data.Services.Count == 0)
+                {
+                    <div class="nexus-empty">Nenhum serviço cadastrado.</div>
+                }
+                else
+                {
+                    @foreach (var s in _data.Services)
+                    {
+                        <div class="srv-service-row">
+                            <div class="srv-service-main">
+                                <span class="@($"srv-dot {(s.IsRunning ? "srv-dot-online" : "srv-dot-offline")}")"></span>
+                                <b>@s.Name</b>
+                                @if (!string.IsNullOrWhiteSpace(s.Protocol) || !string.IsNullOrWhiteSpace(s.Port))
+                                {
+                                    <code class="srv-service-addr">@(s.Protocol ?? "tcp")://@(string.IsNullOrWhiteSpace(s.Port) ? "—" : s.Port)</code>
+                                }
+                                @if (s.IsPublic) { <span class="badge badge-warning">público</span> }
+                            </div>
+                            <div class="srv-service-actions">
+                                @if (!string.IsNullOrWhiteSpace(s.Url))
+                                {
+                                    <MudTooltip Text="Abrir">
+                                        <MudIconButton Href="@s.Url" Target="_blank" Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" />
+                                    </MudTooltip>
+                                }
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                               OnClick="@(() => OpenServiceForm(s))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                               Color="Color.Error" OnClick="@(() => DeleteService(s))" />
+                            </div>
+                        </div>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="5">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Monitoramento</MudText>
+                <div class="ticket-meta">
+                    <span>Status atual</span>
+                    <b>
+                        <span class="@($"srv-dot srv-dot-{StatusClass(_data.Status)}")"></span>
+                        @StatusLabel(_data.Status)
+                    </b>
+                </div>
+                <div class="ticket-meta"><span>Habilitado</span><b>@(_data.MonitoringEnabled ? "Sim" : "Não")</b></div>
+                @if (!string.IsNullOrWhiteSpace(_data.HealthCheckUrl))
+                { <div class="ticket-meta"><span>URL</span><b><code>@_data.HealthCheckUrl</code></b></div> }
+                <div class="ticket-meta"><span>Último check</span>
+                    <b>@(_data.LastCheckedAt?.ToString("dd/MM HH:mm:ss") ?? "—")</b></div>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2 d-block">
+                    O worker roda automaticamente a cada 5 minutos. Quando o servidor cai, um alerta é criado.
+                </MudText>
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Custo & renovação</MudText>
+                <div class="ticket-meta"><span>Custo mensal</span><b>@(_data.MonthlyCost?.ToString("C2") ?? "—")</b></div>
+                <div class="ticket-meta"><span>Próxima renovação</span>
+                    <b>@(_data.RenewalDate?.ToString("dd/MM/yyyy") ?? "—")</b></div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ServerDetailDto? _data;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try { _data = await Svc.GetDetailAsync(Id); }
+        finally { _loading = false; }
+    }
+
+    private async Task OpenEdit()
+    {
+        var parameters = new DialogParameters { ["ServerId"] = Id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<ServerFormDialog>("Editar Servidor", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete()
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir servidor",
+            $"Excluir \"{_data!.Name}\" e seus serviços?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(Id);
+        if (r.Succeeded) { Snackbar.Add("Excluído.", Severity.Success); Nav.NavigateTo("/servidores"); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task OpenServiceForm(ServerServiceDto? existing)
+    {
+        var parameters = new DialogParameters
+        {
+            ["ServerId"] = Id,
+            ["Existing"] = existing
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<ServerServiceFormDialog>(
+            existing is null ? "Novo serviço" : $"Editar {existing.Name}", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task DeleteService(ServerServiceDto s)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir serviço",
+            $"Excluir \"{s.Name}\" deste servidor?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteServiceAsync(s.Id);
+        if (r.Succeeded) { Snackbar.Add("Serviço excluído.", Severity.Success); await Load(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static string StatusClass(ServerStatus s) => s switch
+    {
+        ServerStatus.Online => "online",
+        ServerStatus.Offline => "offline",
+        ServerStatus.Maintenance => "warn",
+        _ => "unknown"
+    };
+
+    private static string StatusLabel(ServerStatus s) => s switch
+    {
+        ServerStatus.Online => "Online",
+        ServerStatus.Offline => "Offline",
+        ServerStatus.Maintenance => "Em manutenção",
+        _ => "Desconhecido"
+    };
+
+    private static string TypeLabel(ServerType t) => t switch
+    {
+        ServerType.VPS => "VPS",
+        ServerType.Dedicated => "Dedicado",
+        ServerType.HomeServer => "Homelab",
+        ServerType.Container => "Container",
+        ServerType.VirtualMachine => "Máquina virtual",
+        ServerType.Cloud => "Cloud",
+        _ => t.ToString()
+    };
+}

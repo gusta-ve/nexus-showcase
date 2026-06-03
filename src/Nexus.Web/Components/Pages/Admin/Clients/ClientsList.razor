@@ -1,0 +1,180 @@
+@page "/clientes"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Clients
+@using Nexus.Domain.Enums
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Clientes — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Clientes</h1>
+        <p class="nexus-sub">Gerencie sua base de clientes e contratos recorrentes</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Novo Cliente
+    </MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" LoadingProgressColor="Color.Primary">
+        <ToolBarContent>
+            <MudTextField @bind-Value="_search" Placeholder="Buscar por nome, email, WhatsApp..."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          IconSize="Size.Small" Immediate="false" Clearable="true"
+                          OnKeyUp="OnSearchKey" OnAdornmentClick="Reload" Class="mt-0" />
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Nome</MudTh>
+            <MudTh>Contato</MudTh>
+            <MudTh>Tipo</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Recorrência</MudTh>
+            <MudTh>Criado</MudTh>
+            <MudTh Style="text-align:right">Ações</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Nome">
+                <b>@context.Name</b>
+            </MudTd>
+            <MudTd DataLabel="Contato">
+                <div style="font-size:13px">
+                    @if (!string.IsNullOrWhiteSpace(context.WhatsApp)) { <div>📱 @context.WhatsApp</div> }
+                    @if (!string.IsNullOrWhiteSpace(context.Email)) { <div>✉️ @context.Email</div> }
+                </div>
+            </MudTd>
+            <MudTd DataLabel="Tipo">
+                @(context.Type == ClientType.Company ? "Empresa" : "Pessoa Física")
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">
+                    @StatusLabel(context.Status)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Recorrência">
+                @if (context.IsRecurring)
+                {
+                    <span>@(context.MonthlyValue?.ToString("C2") ?? "Recorrente")</span>
+                }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Criado">@context.CreatedAt.ToString("dd/MM/yyyy")</MudTd>
+            <MudTd DataLabel="Ações" Style="text-align:right">
+                <MudTooltip Text="Criar acesso ao portal">
+                    <MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small"
+                                   Color="Color.Tertiary" OnClick="@(() => CreatePortalAccess(context))" />
+                </MudTooltip>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               OnClick="@(() => OpenForm(context.Id))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error" OnClick="@(() => Delete(context))" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum cliente cadastrado ainda. Clique em "Novo Cliente".</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<ClientListItemDto> _table = null!;
+    private string? _search;
+    private bool _loading;
+
+    private async Task<TableData<ClientListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var result = await ClientSvc.GetPagedAsync(_search, state.Page + 1, state.PageSize, token);
+            return new TableData<ClientListItemDto>
+            {
+                Items = result.Items,
+                TotalItems = result.TotalCount
+            };
+        }
+        finally { _loading = false; }
+    }
+
+    private Task Reload() => _table.ReloadServerData();
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["ClientId"] = id };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true
+        };
+        var title = id is null ? "Novo Cliente" : "Editar Cliente";
+        var dialog = await DialogService.ShowAsync<ClientFormDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled)
+            await Reload();
+    }
+
+    private async Task CreatePortalAccess(ClientListItemDto c)
+    {
+        var defaultEmail = c.Email ?? "";
+        var parameters = new DialogParameters
+        {
+            ["ClientId"] = c.Id,
+            ["ClientName"] = c.Name
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<PortalAccessDialog>($"Acesso ao portal — {c.Name}", parameters, options);
+    }
+
+    private async Task Delete(ClientListItemDto c)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir cliente",
+            $"Tem certeza que deseja excluir \"{c.Name}\"? Esta ação pode ser revertida pelo suporte.",
+            yesText: "Excluir", cancelText: "Cancelar");
+
+        if (ok != true) return;
+
+        var r = await ClientSvc.DeleteAsync(c.Id);
+        if (r.Succeeded)
+        {
+            Snackbar.Add("Cliente excluído.", Severity.Success);
+            await Reload();
+        }
+        else
+        {
+            Snackbar.Add(r.Error!, Severity.Error);
+        }
+    }
+
+    private static Color StatusColor(ClientStatus s) => s switch
+    {
+        ClientStatus.Active => Color.Success,
+        ClientStatus.Prospect => Color.Info,
+        ClientStatus.Inactive => Color.Default,
+        ClientStatus.Blocked => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(ClientStatus s) => s switch
+    {
+        ClientStatus.Active => "Ativo",
+        ClientStatus.Prospect => "Possível cliente",
+        ClientStatus.Inactive => "Inativo",
+        ClientStatus.Blocked => "Bloqueado",
+        _ => s.ToString()
+    };
+}

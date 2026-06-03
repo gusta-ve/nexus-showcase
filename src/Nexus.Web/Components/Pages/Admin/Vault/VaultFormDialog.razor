@@ -1,0 +1,166 @@
+@using Nexus.Application.Features.Vault
+@inject VaultService VaultSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Name" Label="Nome *" Required="true"
+                                  RequiredError="Informe o nome" Variant="Variant.Outlined"
+                                  HelperText="Ex: Servidor VPS cliente X · Roteador escritório · API Stripe"
+                                  MaxLength="200" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSwitch @bind-Value="_model.IsFavorite" Label="Favorito"
+                               Color="Color.Warning" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudAutocomplete T="string" Label="Categoria"
+                                     SearchFunc="SearchCategories" @bind-Value="_model.Category"
+                                     Variant="Variant.Outlined" Clearable="true"
+                                     CoerceText="false" CoerceValue="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Username" Label="Usuário / login"
+                                  Variant="Variant.Outlined" MaxLength="256" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.NewPassword"
+                                  Label="@(_model.Id is null ? "Senha *" : "Nova senha (deixe vazio para manter)")"
+                                  Required="@(_model.Id is null)"
+                                  InputType="@(_showPassword ? InputType.Text : InputType.Password)"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(_showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                  OnAdornmentClick="@(() => _showPassword = !_showPassword)"
+                                  MaxLength="2000" />
+                    <div class="vault-pass-row">
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                   OnClick="GeneratePassword">Gerar senha forte</MudButton>
+                        @if (!string.IsNullOrEmpty(_model.NewPassword))
+                        {
+                            <span class="vault-pass-meter">
+                                <span class="@StrengthClass(_model.NewPassword)">@StrengthLabel(_model.NewPassword)</span>
+                                · @_model.NewPassword.Length chars
+                            </span>
+                        }
+                    </div>
+                </MudItem>
+
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Url" Label="URL" Variant="Variant.Outlined"
+                                  Placeholder="https://..." MaxLength="2048" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags" Variant="Variant.Outlined"
+                                  Placeholder="vps, cliente-x, ssh" MaxLength="500" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes"
+                                  Label="@(_model.Id is null ? "Notas (criptografadas)" : "Notas (em branco mantém atual)")"
+                                  Lines="3" Variant="Variant.Outlined" MaxLength="5000" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? EntryId { get; set; }
+
+    private MudForm _form = null!;
+    private VaultEntryFormDto _model = new();
+    private bool _showPassword;
+    private bool _saving;
+    private IReadOnlyList<string> _categories = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await VaultSvc.GetCategoriesAsync();
+        if (EntryId is { } id)
+        {
+            var loaded = await VaultSvc.GetForEditAsync(id);
+            if (loaded is not null) _model = loaded;
+        }
+    }
+
+    private Task<IEnumerable<string>> SearchCategories(string? value, CancellationToken ct)
+    {
+        var v = (value ?? "").Trim().ToLowerInvariant();
+        var matches = string.IsNullOrEmpty(v)
+            ? _categories
+            : _categories.Where(c => c.ToLowerInvariant().Contains(v));
+        return Task.FromResult<IEnumerable<string>>(matches.Take(10));
+    }
+
+    private void GeneratePassword()
+    {
+        _model.NewPassword = VaultService.GeneratePassword(20);
+        _showPassword = true;
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await VaultSvc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Entrada atualizada.", Severity.Success);
+            }
+            else
+            {
+                var r = await VaultSvc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Entrada criada.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+
+    private static string StrengthClass(string pw) => Strength(pw) switch
+    {
+        >= 4 => "strong",
+        3 => "good",
+        2 => "ok",
+        _ => "weak"
+    };
+
+    private static string StrengthLabel(string pw) => Strength(pw) switch
+    {
+        >= 4 => "forte",
+        3 => "boa",
+        2 => "ok",
+        _ => "fraca"
+    };
+
+    private static int Strength(string pw)
+    {
+        if (string.IsNullOrEmpty(pw)) return 0;
+        var s = 0;
+        if (pw.Length >= 12) s++;
+        if (pw.Any(char.IsUpper) && pw.Any(char.IsLower)) s++;
+        if (pw.Any(char.IsDigit)) s++;
+        if (pw.Any(c => !char.IsLetterOrDigit(c))) s++;
+        if (pw.Length >= 16) s++;
+        return s;
+    }
+}

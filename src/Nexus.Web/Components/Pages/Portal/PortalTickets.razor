@@ -1,0 +1,105 @@
+@page "/portal/chamados"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalTicketService TicketSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Meus Chamados · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Meus Chamados</h1>
+        <p class="nexus-sub">Acompanhe o histórico e o status dos seus atendimentos</p>
+    </div>
+    <MudButton Href="/portal/chamados/novo" Color="Color.Primary" Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.Add">Novo chamado</MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading"
+              OnRowClick="@OnRowClick" T="PortalTicketSummaryDto">
+        <HeaderContent>
+            <MudTh>Número</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Aberto em</MudTh>
+            <MudTh>Resolvido</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><code>@context.Number</code></MudTd>
+            <MudTd><b>@context.Title</b></MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">@StatusLabel(context.Status)</MudChip>
+            </MudTd>
+            <MudTd>@context.CreatedAt.ToString("dd/MM/yyyy HH:mm")</MudTd>
+            <MudTd>@(context.ResolvedAt?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum chamado ainda. Abra o primeiro.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<PortalTicketSummaryDto> _table = null!;
+    private bool _loading;
+    private Guid? _clientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+    }
+
+    private async Task<TableData<PortalTicketSummaryDto>> LoadData(TableState state, CancellationToken token)
+    {
+        if (_clientId is null) return new TableData<PortalTicketSummaryDto> { Items = [], TotalItems = 0 };
+        _loading = true;
+        try
+        {
+            var page = await TicketSvc.GetMyTicketsAsync(_clientId.Value, state.Page + 1, state.PageSize, token);
+            return new TableData<PortalTicketSummaryDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<PortalTicketSummaryDto> args)
+        => Nav.NavigateTo($"/portal/chamados/{args.Item!.Id}");
+
+    private static Color StatusColor(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => Color.Info,
+        TicketStatus.Analyzing => Color.Warning,
+        TicketStatus.InProgress => Color.Primary,
+        TicketStatus.WaitingClient => Color.Tertiary,
+        TicketStatus.Resolved => Color.Success,
+        TicketStatus.Closed => Color.Default,
+        TicketStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Aberto",
+        TicketStatus.Analyzing => "Em análise",
+        TicketStatus.InProgress => "Em atendimento",
+        TicketStatus.WaitingClient => "Aguardando você",
+        TicketStatus.Resolved => "Resolvido",
+        TicketStatus.Closed => "Fechado",
+        TicketStatus.Cancelled => "Cancelado",
+        _ => s.ToString()
+    };
+}

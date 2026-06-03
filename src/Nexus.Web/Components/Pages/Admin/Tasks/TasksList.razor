@@ -1,0 +1,200 @@
+@page "/tarefas"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@using Nexus.Application.Features.Tasks
+@using Nexus.Domain.Enums
+@inject WorkItemService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Tarefas — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Tarefas</h1>
+        <p class="nexus-sub">Sua lista pessoal de coisas pra fazer · ordenada por prioridade e prazo</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Nova tarefa
+    </MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" T="WorkItemListItemDto">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por título, categoria, tags..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="WorkItemStatus" SelectAll="true" SelectAllText="Todos"
+                               MultiSelection="true" @bind-SelectedValues="_statusFilter" @bind-SelectedValues:after="Reload"
+                               Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="WorkItemStatus.Todo">A fazer</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.InProgress">Em andamento</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.Done">Concluída</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.Cancelled">Cancelada</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="WorkItemPriority" SelectAll="true" SelectAllText="Todas"
+                               MultiSelection="true" @bind-SelectedValues="_priorityFilter" @bind-SelectedValues:after="Reload"
+                               Label="Prioridade" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="WorkItemPriority.Urgent">Urgente</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.High">Alta</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.Medium">Média</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.Low">Baixa</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh Style="width:48px"></MudTh>
+            <MudTh>Tarefa</MudTh>
+            <MudTh>Prioridade</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Vencimento</MudTh>
+            <MudTh Style="text-align:right">Ações</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudCheckBox T="bool" Value="@(context.Status == WorkItemStatus.Done)"
+                             ValueChanged="@((bool v) => ToggleDone(context))"
+                             Color="Color.Success" Size="Size.Small" />
+            </MudTd>
+            <MudTd DataLabel="Tarefa">
+                <div class="@(context.Status == WorkItemStatus.Done ? "task-done" : "")">
+                    <b>@context.Title</b>
+                    @if (!string.IsNullOrWhiteSpace(context.Category))
+                    { <span class="task-category">@context.Category</span> }
+                </div>
+            </MudTd>
+            <MudTd DataLabel="Prioridade">
+                <MudChip T="string" Size="Size.Small" Color="PriorityColor(context.Priority)">
+                    @PriorityLabel(context.Priority)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">
+                    @StatusLabel(context.Status)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Vencimento">
+                @if (context.DueDate is DateTime d)
+                {
+                    var days = (d.Date - DateTime.UtcNow.Date).TotalDays;
+                    var color = context.Status == WorkItemStatus.Done ? "var(--nx-text-3)"
+                              : days < 0 ? "var(--nx-error)"
+                              : days < 2 ? "var(--nx-warning)"
+                              : "var(--nx-text-2)";
+                    <span style="@($"color:{color}")">@d.ToString("dd/MM/yyyy")</span>
+                }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Ações" Style="text-align:right">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               OnClick="@(() => OpenForm(context.Id))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error" OnClick="@(() => Delete(context))" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhuma tarefa. Bora começar a organizar — clique em "Nova tarefa".</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 20, 50, 100 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<WorkItemListItemDto> _table = null!;
+    private string? _search;
+    private IReadOnlyCollection<WorkItemStatus> _statusFilter = new HashSet<WorkItemStatus>
+    {
+        WorkItemStatus.Todo, WorkItemStatus.InProgress
+    };
+    private IReadOnlyCollection<WorkItemPriority> _priorityFilter = new HashSet<WorkItemPriority>(Enum.GetValues<WorkItemPriority>());
+    private bool _loading;
+
+    private async Task<TableData<WorkItemListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await Svc.GetPagedAsync(_search, _statusFilter?.ToList(), _priorityFilter?.ToList(),
+                state.Page + 1, state.PageSize, token);
+            return new TableData<WorkItemListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private Task Reload() => _table is null ? Task.CompletedTask : _table.ReloadServerData();
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private async Task ToggleDone(WorkItemListItemDto t)
+    {
+        await Svc.ToggleDoneAsync(t.Id);
+        await Reload();
+    }
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["TaskId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<TaskFormDialog>(id is null ? "Nova tarefa" : "Editar tarefa", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Reload();
+    }
+
+    private async Task Delete(WorkItemListItemDto t)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir tarefa", $"Excluir \"{t.Title}\"?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(t.Id);
+        if (r.Succeeded) { Snackbar.Add("Excluída.", Severity.Success); await Reload(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static Color PriorityColor(WorkItemPriority p) => p switch
+    {
+        WorkItemPriority.Urgent => Color.Error,
+        WorkItemPriority.High => Color.Warning,
+        WorkItemPriority.Medium => Color.Info,
+        _ => Color.Default
+    };
+
+    private static string PriorityLabel(WorkItemPriority p) => p switch
+    {
+        WorkItemPriority.Urgent => "Urgente",
+        WorkItemPriority.High => "Alta",
+        WorkItemPriority.Medium => "Média",
+        WorkItemPriority.Low => "Baixa",
+        _ => p.ToString()
+    };
+
+    private static Color StatusColor(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.Done => Color.Success,
+        WorkItemStatus.InProgress => Color.Primary,
+        WorkItemStatus.Cancelled => Color.Default,
+        _ => Color.Info
+    };
+
+    private static string StatusLabel(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.Todo => "A fazer",
+        WorkItemStatus.InProgress => "Em andamento",
+        WorkItemStatus.Done => "Concluída",
+        WorkItemStatus.Cancelled => "Cancelada",
+        _ => s.ToString()
+    };
+}

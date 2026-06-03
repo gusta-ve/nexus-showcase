@@ -1,0 +1,262 @@
+@page "/dashboard"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Dashboard
+@inject DashboardService DashboardSvc
+
+<PageTitle>Dashboard — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Dashboard</h1>
+        <p class="nexus-sub">Visão geral da sua operação de TI</p>
+    </div>
+    <MudText Typo="Typo.body2" Color="Color.Secondary">@DateTime.Now.ToString("dddd, dd 'de' MMMM 'de' yyyy")</MudText>
+</div>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <MudGrid Spacing="4">
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Chamados Abertos" Value="@_data.OpenTickets.ToString()"
+                      Icon="@Icons.Material.Filled.ConfirmationNumber" Color="#6366f1"
+                      Hint="@($"{_data.TicketsInProgress} em andamento")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Receita do Mês" Value="@_data.MonthlyIncome.ToString("C0")"
+                      Icon="@Icons.Material.Filled.TrendingUp" Color="#22c55e"
+                      Hint="@IncomeHint()" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Clientes Ativos" Value="@_data.ActiveClients.ToString()"
+                      Icon="@Icons.Material.Filled.Groups" Color="#06b6d4"
+                      Hint="@($"{_data.RecurringClients} recorrentes")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Receita Recorrente (MRR)" Value="@_data.RecurringRevenue.ToString("C0")"
+                      Icon="@Icons.Material.Filled.Autorenew" Color="#f59e0b"
+                      Hint="@($"A receber: {_data.PendingReceivables:C0}")" />
+        </MudItem>
+
+        <!-- ─── KPIs de eficiência e qualidade ─── -->
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Tempo médio resolução"
+                      Value="@(_data.AvgResolutionHours is null ? "—" : FormatHours(_data.AvgResolutionHours.Value))"
+                      Icon="@Icons.Material.Filled.Schedule" Color="#a78bfa"
+                      Hint="Últimos 30 dias" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Avaliação média"
+                      Value="@(_data.AvgRating is null ? "—" : $"{_data.AvgRating:0.0}★")"
+                      Icon="@Icons.Material.Filled.Star" Color="#fbbf24"
+                      Hint="@($"{_data.ReviewCount} avaliação(ões)")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Tarefas pendentes"
+                      Value="@_data.PendingTasks.ToString()"
+                      Icon="@Icons.Material.Filled.PlaylistAddCheck" Color="#06b6d4"
+                      Hint="@($"{_data.OverdueTasks} atrasada(s)")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Servidores monitorados"
+                      Value="@($"{_data.ServersOnline}/{_data.ServersOnline + _data.ServersOffline}")"
+                      Icon="@Icons.Material.Filled.Dns"
+                      Color="@(_data.ServersOffline > 0 ? "#ef4444" : "#22c55e")"
+                      Hint="@(_data.ServersOffline > 0 ? $"{_data.ServersOffline} offline!" : "Todos online")" />
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-4">Receita vs Despesas (6 meses)</MudText>
+                @if (_data.RevenueChart.Any(r => r.Income > 0 || r.Expenses > 0))
+                {
+                    <MudChart ChartType="ChartType.Bar"
+                              ChartSeries="_series"
+                              ChartLabels="_labels"
+                              Width="100%" Height="320px" />
+                }
+                else
+                {
+                    <div class="nexus-empty">Sem dados financeiros ainda. Lance transações no módulo Financeiro.</div>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-4">Alertas Recentes</MudText>
+                @if (_data.RecentAlerts.Count == 0)
+                {
+                    <div class="nexus-empty">Nenhum alerta pendente</div>
+                }
+                else
+                {
+                    foreach (var a in _data.RecentAlerts)
+                    {
+                        <div class="nexus-alert-row">
+                            <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Small" />
+                            <div>
+                                <div class="nexus-alert-title">@a.Title</div>
+                                <div class="nexus-alert-time">@a.CreatedAt.ToString("dd/MM HH:mm")</div>
+                            </div>
+                        </div>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+
+        @if (_data.TopCategories.Count > 0)
+        {
+            <MudItem xs="12" md="6">
+                <MudPaper Class="nexus-panel" Elevation="0">
+                    <MudText Typo="Typo.h6" Class="mb-3">Top categorias de chamados</MudText>
+                    <MudText Typo="Typo.caption" Class="mb-3" Style="display:block;color:#a1a1aa">Últimos 90 dias</MudText>
+                    @{
+                        var maxCount = _data.TopCategories.Max(c => c.Count);
+                    }
+                    @foreach (var c in _data.TopCategories)
+                    {
+                        var pct = maxCount > 0 ? (c.Count * 100 / maxCount) : 0;
+                        <div class="cat-row">
+                            <div class="cat-row-head">
+                                <span>@CategoryLabel(c.Category)</span>
+                                <b>@c.Count</b>
+                            </div>
+                            <div class="cat-bar"><div class="cat-bar-fill" style="width:@(pct)%"></div></div>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Class="nexus-panel" Elevation="0">
+                    <MudText Typo="Typo.h6" Class="mb-3">Operação do dia</MudText>
+                    <div class="op-list">
+                        <div class="op-row">
+                            <span class="op-row-ico" style="background:rgba(99,102,241,0.15);color:#6366f1">📋</span>
+                            <div>
+                                <b>@_data.OpenTickets</b> chamado(s) aberto(s)
+                                <small>@_data.TicketsInProgress em andamento agora</small>
+                            </div>
+                        </div>
+                        <div class="op-row">
+                            <span class="op-row-ico" style="background:rgba(34,197,94,0.15);color:#22c55e">✓</span>
+                            <div>
+                                <b>@_data.ResolvedToday</b> resolvido(s) hoje
+                                <small>Continua o ritmo</small>
+                            </div>
+                        </div>
+                        @if (_data.CriticalTickets > 0)
+                        {
+                            <div class="op-row">
+                                <span class="op-row-ico" style="background:rgba(239,68,68,0.15);color:#ef4444">⚠</span>
+                                <div>
+                                    <b>@_data.CriticalTickets</b> crítico(s) pendente(s)
+                                    <small style="color:#ef4444">Prioridade alta</small>
+                                </div>
+                            </div>
+                        }
+                        @if (_data.OverdueTasks > 0)
+                        {
+                            <div class="op-row">
+                                <span class="op-row-ico" style="background:rgba(245,158,11,0.15);color:#f59e0b">⏰</span>
+                                <div>
+                                    <b>@_data.OverdueTasks</b> tarefa(s) atrasada(s)
+                                    <small>Vale ajustar prazo ou concluir</small>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </MudPaper>
+            </MudItem>
+        }
+
+        <MudItem xs="12">
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-4">Chamados Recentes</MudText>
+                @if (_data.RecentTickets.Count == 0)
+                {
+                    <div class="nexus-empty">Nenhum chamado registrado ainda</div>
+                }
+                else
+                {
+                    <MudTable Items="_data.RecentTickets" Hover="true" Dense="true" Elevation="0" Class="nexus-table">
+                        <HeaderContent>
+                            <MudTh>Número</MudTh>
+                            <MudTh>Título</MudTh>
+                            <MudTh>Cliente</MudTh>
+                            <MudTh>Prioridade</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Criado</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Number</MudTd>
+                            <MudTd>@context.Title</MudTd>
+                            <MudTd>@(context.ClientName ?? "—")</MudTd>
+                            <MudTd><MudChip T="string" Size="Size.Small" Color="PriorityColor(context.Priority)">@context.Priority</MudChip></MudTd>
+                            <MudTd>@context.Status</MudTd>
+                            <MudTd>@context.CreatedAt.ToString("dd/MM/yyyy")</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private DashboardDto? _data;
+    private List<ChartSeries<double>> _series = [];
+    private string[] _labels = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _data = await DashboardSvc.GetAsync();
+        _labels = _data.RevenueChart.Select(r => r.Month).ToArray();
+        _series =
+        [
+            new ChartSeries<double> { Name = "Receita", Data = _data.RevenueChart.Select(r => (double)r.Income).ToArray() },
+            new ChartSeries<double> { Name = "Despesas", Data = _data.RevenueChart.Select(r => (double)r.Expenses).ToArray() }
+        ];
+    }
+
+    private Color PriorityColor(string p) => p switch
+    {
+        "Critical" => Color.Error,
+        "High" => Color.Warning,
+        "Medium" => Color.Info,
+        _ => Color.Default
+    };
+
+    private string IncomeHint()
+    {
+        if (_data is null) return "";
+        if (_data.IncomeLastMonth == 0) return $"Lucro: {_data.MonthlyProfit:C0}";
+        var pct = _data.IncomeChangePct;
+        var arrow = pct >= 0 ? "↑" : "↓";
+        return $"{arrow} {Math.Abs(pct):0.0}% vs mês passado · Lucro: {_data.MonthlyProfit:C0}";
+    }
+
+    private static string FormatHours(double hours)
+    {
+        if (hours < 1) return $"{(int)(hours * 60)} min";
+        if (hours < 24) return $"{hours:0.0} h";
+        var d = hours / 24;
+        return $"{d:0.0} dias";
+    }
+
+    private static string CategoryLabel(string cat) => cat switch
+    {
+        "Support" => "Suporte",
+        "Network" => "Redes",
+        "Hardware" => "Hardware",
+        "Software" => "Software",
+        "Security" => "Segurança",
+        "Maintenance" => "Manutenção",
+        _ => cat
+    };
+}

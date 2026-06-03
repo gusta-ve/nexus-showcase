@@ -1,0 +1,71 @@
+@using Nexus.Domain.Entities.Automation
+@inject ISnackbar Snackbar
+
+<MudDialog>
+<DialogContent>
+    <div style="display:flex;flex-direction:column;gap:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+                <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Status</div>
+                <div>@Log.Status</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Origem</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px">@Log.Source</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Tipo de trigger</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px">@(Log.TriggerType ?? "—")</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Recebido em</div>
+                <div style="font-size:13px">@Log.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Log.ErrorMessage))
+        {
+            <div>
+                <div style="font-size:11px;color:var(--nx-error);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Erro</div>
+                <pre style="background:rgba(255,75,110,0.08);border:1px solid rgba(255,75,110,0.2);border-radius:8px;padding:12px;font-size:12px;overflow:auto;margin:0;white-space:pre-wrap">@Log.ErrorMessage</pre>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(Log.Payload))
+        {
+            <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em">Payload recebido</div>
+                    <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                   OnClick="CopyPayload" />
+                </div>
+                <pre style="background:var(--nx-bg);border:1px solid var(--nx-border);border-radius:8px;padding:14px;font-size:12px;overflow:auto;max-height:320px;margin:0;color:var(--nx-text-2);white-space:pre-wrap">@Log.Payload</pre>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(Log.Result))
+        {
+            <div>
+                <div style="font-size:11px;color:var(--nx-text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Resultado</div>
+                <pre style="background:var(--nx-bg);border:1px solid var(--nx-border);border-radius:8px;padding:12px;font-size:12px;overflow:auto;margin:0;color:var(--nx-text-2)">@Log.Result</pre>
+            </div>
+        }
+    </div>
+</DialogContent>
+<DialogActions>
+    <MudButton OnClick="Close">Fechar</MudButton>
+</DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public AutomationLog Log { get; set; } = default!;
+
+    void Close() => MudDialog.Close();
+
+    async Task CopyPayload()
+    {
+        await Task.CompletedTask;
+        Snackbar.Add("Payload copiado!", Severity.Info);
+    }
+}

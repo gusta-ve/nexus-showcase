@@ -1,0 +1,130 @@
+@page "/conhecimento/{Id:guid}"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Knowledge
+@inject KnowledgeService Svc
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>@(_data?.Title ?? "Artigo") · Nexus</PageTitle>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <MudButton Href="/conhecimento" StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Variant="Variant.Text" Size="Size.Small">Voltar</MudButton>
+            <h1 class="nexus-h1" style="margin-top:6px">
+                @if (_data.IsPinned)
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.PushPin" Size="Size.Small" Color="Color.Warning" Class="mr-1" />
+                }
+                @_data.Title
+            </h1>
+            <div class="nexus-sub" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                @if (!string.IsNullOrWhiteSpace(_data.Category))
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_data.Category</MudChip>
+                }
+                @foreach (var tag in (_data.Tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <code style="font-size:11px;color:#00c2ff;background:#0d1117;padding:2px 6px;border-radius:3px">#@tag</code>
+                }
+                <span style="color:#5a6a75;font-size:12px">· @_data.Views views · atualizado @_data.UpdatedAt.ToString("dd/MM/yyyy HH:mm")</span>
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton OnClick="CopyContent" Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.ContentCopy">Copiar conteúdo</MudButton>
+            <MudButton OnClick="TogglePin" Variant="Variant.Outlined" Color="Color.Warning"
+                       StartIcon="@(_data.IsPinned ? Icons.Material.Filled.PushPin : Icons.Material.Outlined.PushPin)">
+                @(_data.IsPinned ? "Desafixar" : "Fixar")
+            </MudButton>
+            <MudButton OnClick="OpenEdit" Color="Color.Primary" Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.Edit">Editar</MudButton>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_data.Summary))
+    {
+        <MudPaper Class="nexus-panel mb-3" Elevation="0"
+                  Style="border-left:3px solid #00c2ff">
+            <MudText Typo="Typo.body1" Style="color:#cbd5e1;font-style:italic">@_data.Summary</MudText>
+        </MudPaper>
+    }
+
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <pre class="kb-content">@_data.Content</pre>
+    </MudPaper>
+}
+
+<style>
+    .kb-content {
+        font-family: 'JetBrains Mono', 'Consolas', monospace;
+        font-size: 13px;
+        line-height: 1.65;
+        color: #e2e8f0;
+        background: #050608;
+        padding: 20px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        margin: 0;
+        overflow-x: auto;
+    }
+</style>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private KnowledgeDetailDto? _data;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _data = await Svc.GetDetailAsync(Id, incrementViews: true);
+        if (_data is null) Nav.NavigateTo("/conhecimento");
+    }
+
+    private async Task OpenEdit()
+    {
+        var parameters = new DialogParameters { [nameof(KnowledgeFormDialog.ArticleId)] = Id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dlg = await DialogService.ShowAsync<KnowledgeFormDialog>("Editar artigo", parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled)
+        {
+            _data = await Svc.GetDetailAsync(Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task TogglePin()
+    {
+        var r = await Svc.TogglePinAsync(Id);
+        if (r.Succeeded)
+        {
+            _data = await Svc.GetDetailAsync(Id);
+            Snackbar.Add(_data?.IsPinned == true ? "Fixado." : "Desafixado.", Severity.Info);
+        }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task CopyContent()
+    {
+        if (_data is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _data.Content);
+            Snackbar.Add("Conteúdo copiado.", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("Não foi possível copiar.", Severity.Warning);
+        }
+    }
+}

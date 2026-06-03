@@ -1,0 +1,131 @@
+@page "/portal"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalDashboardService DashboardSvc
+@inject PortalQuoteService QuoteSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Portal · Nexus</PageTitle>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <div class="portal-welcome">
+        <h1>Bem-vindo, @_data.ClientName</h1>
+        <p>Acompanhe seus chamados, abra novas solicitações e veja o histórico de atendimentos.</p>
+    </div>
+
+    @if (_pendingQuotes > 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">
+            Você tem <b>@_pendingQuotes</b> orçamento(s) aguardando sua resposta.
+            <MudButton Href="/portal/orcamentos" Color="Color.Info" Variant="Variant.Outlined"
+                       Size="Size.Small" Class="ml-3">Ver orçamentos</MudButton>
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="4" Class="mb-2">
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Chamados abertos" Value="@_data.OpenTickets.ToString()"
+                      Icon="@Icons.Material.Filled.FiberManualRecord" Color="#06b6d4" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Em andamento" Value="@_data.InProgressTickets.ToString()"
+                      Icon="@Icons.Material.Filled.HourglassEmpty" Color="#6366f1" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Resolvidos / fechados" Value="@_data.ResolvedTickets.ToString()"
+                      Icon="@Icons.Material.Filled.CheckCircle" Color="#22c55e" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Total histórico" Value="@_data.TotalTickets.ToString()"
+                      Icon="@Icons.Material.Filled.History" Color="#a1a1aa" />
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <div class="d-flex align-center mb-3" style="display:flex;align-items:center">
+                    <MudText Typo="Typo.h6">Atividade recente</MudText>
+                    <MudSpacer />
+                    <MudButton Href="/portal/chamados/novo" Color="Color.Primary" Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.Add">Novo chamado</MudButton>
+                </div>
+
+                @if (_data.RecentTickets.Count == 0)
+                {
+                    <div class="nexus-empty">
+                        Você ainda não tem chamados. Abra o primeiro pra ver o atendimento em andamento.
+                    </div>
+                }
+                else
+                {
+                    @foreach (var t in _data.RecentTickets)
+                    {
+                        <a href="@($"/portal/chamados/{t.Id}")" class="portal-ticket-row">
+                            <div class="portal-ticket-main">
+                                <code class="portal-ticket-num">@t.Number</code>
+                                <span class="portal-ticket-title">@t.Title</span>
+                            </div>
+                            <div class="portal-ticket-meta">
+                                <MudChip T="string" Size="Size.Small" Color="StatusColor(t.Status)">@StatusLabel(t.Status)</MudChip>
+                                <span class="portal-ticket-date">@t.CreatedAt.ToString("dd/MM/yyyy")</span>
+                            </div>
+                        </a>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private PortalDashboardDto? _data;
+    private int _pendingQuotes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        if (ctx?.ClientId is null) return;
+        _data = await DashboardSvc.GetAsync(ctx.ClientId.Value);
+
+        // conta orçamentos aguardando resposta (Status=Sent)
+        var quotes = await QuoteSvc.GetMyQuotesAsync(ctx.ClientId.Value, 1, 100);
+        _pendingQuotes = quotes.Items.Count(q => q.Status == Nexus.Domain.Enums.DocumentStatus.Sent);
+    }
+
+    private static Color StatusColor(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => Color.Info,
+        TicketStatus.Analyzing => Color.Warning,
+        TicketStatus.InProgress => Color.Primary,
+        TicketStatus.WaitingClient => Color.Tertiary,
+        TicketStatus.Resolved => Color.Success,
+        TicketStatus.Closed => Color.Default,
+        TicketStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Aberto",
+        TicketStatus.Analyzing => "Em análise",
+        TicketStatus.InProgress => "Em atendimento",
+        TicketStatus.WaitingClient => "Aguardando você",
+        TicketStatus.Resolved => "Resolvido",
+        TicketStatus.Closed => "Fechado",
+        TicketStatus.Cancelled => "Cancelado",
+        _ => s.ToString()
+    };
+}

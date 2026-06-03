@@ -1,0 +1,96 @@
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@inject IPortalAccessService Access
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_created is null)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                O sistema vai criar uma conta de acesso ao portal pra <b>@ClientName</b>.
+                Uma senha temporária será gerada — você verá uma vez aqui pra compartilhar
+                com o cliente. Ele será obrigado a trocá-la no primeiro login.
+            </MudText>
+            <MudTextField @bind-Value="_email" Label="Email do cliente *" Required="true"
+                          Variant="Variant.Outlined" InputType="InputType.Email"
+                          HelperText="Será o login dele no portal" />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-3">
+                Acesso criado! Copie e envie ao cliente — esta senha <b>não será mostrada de novo</b>.
+            </MudAlert>
+            <div class="ticket-meta"><span>Login (email)</span>
+                <code class="vault-reveal-secret">@_created.Email</code>
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                               OnClick="@(() => Copy(_created.Email, "Email"))" />
+            </div>
+            <div class="ticket-meta"><span>Senha temporária</span>
+                <code class="vault-reveal-secret">@_created.TemporaryPassword</code>
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                               OnClick="@(() => Copy(_created.TemporaryPassword, "Senha"))" />
+            </div>
+            <MudText Typo="Typo.caption" Class="mt-3" Color="Color.Secondary">
+                URL de acesso: https://gustavoti.com/login
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_created is null)
+        {
+            <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       OnClick="Submit" Disabled="@(_saving || string.IsNullOrWhiteSpace(_email))">
+                @(_saving ? "Criando..." : "Criar acesso")
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       OnClick="@(() => MudDialog.Close(DialogResult.Ok(true)))">Fechar</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid ClientId { get; set; }
+    [Parameter, EditorRequired] public string ClientName { get; set; } = "";
+
+    private string _email = "";
+    private bool _saving;
+    private PortalAccessCreatedDto? _created;
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(_email)) return;
+        _saving = true;
+        try
+        {
+            var r = await Access.CreateClientAccessAsync(new CreatePortalAccessDto
+            {
+                ClientId = ClientId,
+                Email = _email.Trim()
+            });
+            if (!r.Succeeded)
+            {
+                Snackbar.Add(r.Error!, Severity.Error);
+                return;
+            }
+            _created = r.Value;
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Copy(string text, string label)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Snackbar.Add($"{label} copiado.", Severity.Success);
+        }
+        catch { Snackbar.Add("Clipboard bloqueado.", Severity.Warning); }
+    }
+}

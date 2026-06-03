@@ -1,0 +1,182 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using Nexus.Application.Common.Interfaces
+@inject IPortalAccessService PortalAccess
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<MudThemeProvider Theme="Nexus.Web.Services.NexusTheme.Theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<AuthorizeView Roles="Client" Context="auth">
+    <Authorized>
+        <MudLayout>
+            <MudAppBar Elevation="0" Class="nexus-appbar portal-appbar">
+                <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit"
+                               OnClick="ToggleDrawer" Edge="Edge.Start" />
+
+                <div class="nexus-section-title">
+                    <span class="nexus-section-title-eyebrow">Gustavo Almeida · Portal</span>
+                    <span class="nexus-section-title-name">@_sectionLabel</span>
+                </div>
+
+                <MudSpacer />
+
+                <NotificationBell />
+
+                <div class="nx-user-dd" id="nx-user-dd-portal">
+                    <button type="button" class="nexus-user-chip" aria-label="Conta"
+                            onclick="nxUserDd.toggle('nx-user-dd-portal')">
+                        <span class="nexus-user-chip-avatar">@Initials(_userName)</span>
+                        <span class="nexus-user-chip-name">@_userName</span>
+                        <svg class="nexus-user-chip-caret" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <div class="nx-user-dd-panel">
+                        <div class="nx-user-dd-header">
+                            <span class="nx-user-dd-name">@_userName</span>
+                            <span class="nx-user-dd-role">Cliente</span>
+                        </div>
+                        <div class="nx-user-dd-divider"></div>
+                        <LogoutForm />
+                    </div>
+                </div>
+            </MudAppBar>
+
+            <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Mini" OpenMiniOnHover="false"
+                       Elevation="0"
+                       Class="@($"nexus-drawer {(_drawerOpen ? "is-open" : "is-collapsed")}")">
+                <div class="nexus-nav-brand">
+                    <HexLogomark Letter="G" Size="32" />
+                    <div class="nexus-nav-brand-text">
+                        <span class="nexus-nav-title nx-display">PORTAL</span>
+                        <span class="nexus-nav-sub">CLIENTE</span>
+                    </div>
+                </div>
+                <MudNavMenu Class="nexus-navmenu">
+                    <MudNavLink Href="/portal" Match="NavLinkMatch.All"
+                                Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+                    <MudNavLink Href="/portal/chamados"
+                                Icon="@Icons.Material.Filled.ConfirmationNumber">Meus Chamados</MudNavLink>
+                    <MudNavLink Href="/portal/chamados/novo"
+                                Icon="@Icons.Material.Filled.AddCircle">Abrir Chamado</MudNavLink>
+                    <MudNavLink Href="/portal/orcamentos"
+                                Icon="@Icons.Material.Filled.RequestQuote">Orçamentos</MudNavLink>
+                    <MudNavLink Href="/portal/ordens-servico"
+                                Icon="@Icons.Material.Filled.Assignment">Ordens de Serviço</MudNavLink>
+                    <MudNavLink Href="/portal/equipamentos"
+                                Icon="@Icons.Material.Filled.Devices">Meus Equipamentos</MudNavLink>
+                    <MudNavLink Href="/portal/perfil"
+                                Icon="@Icons.Material.Filled.AccountCircle">Meu Perfil</MudNavLink>
+                </MudNavMenu>
+
+                <div class="nexus-drawer-footer" aria-hidden="false">
+                    <span class="nexus-drawer-footer-dot" aria-hidden="true"></span>
+                    <div class="nexus-drawer-footer-text">
+                        <span class="nexus-drawer-footer-label">Conectado</span>
+                        <span class="nexus-drawer-footer-meta">portal · seguro</span>
+                    </div>
+                </div>
+            </MudDrawer>
+
+            <MudMainContent Class="nexus-main">
+                <MudContainer MaxWidth="MaxWidth.Large" Class="pa-6">
+                    @if (_mustChangePassword && !_isOnChangePasswordPage)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-4">
+                            Por segurança, troque sua senha temporária antes de continuar.
+                            <MudButton Href="/portal/trocar-senha" Color="Color.Warning"
+                                       Variant="Variant.Outlined" Class="ml-3">Trocar agora</MudButton>
+                        </MudAlert>
+                    }
+                    @Body
+                </MudContainer>
+            </MudMainContent>
+        </MudLayout>
+    </Authorized>
+</AuthorizeView>
+
+<BlazorErrorBanner />
+
+@code {
+    private string _userName = "";
+    private bool _mustChangePassword;
+    private bool _isOnChangePasswordPage;
+    private bool _drawerOpen = true;
+    private string _sectionLabel = "Dashboard";
+
+    private static readonly Dictionary<string, string> PortalSectionMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [""] = "Dashboard",
+        ["chamados"] = "Meus Chamados",
+        ["orcamentos"] = "Orçamentos",
+        ["ordens-servico"] = "Ordens de Serviço",
+        ["equipamentos"] = "Meus Equipamentos",
+        ["perfil"] = "Meu Perfil",
+        ["trocar-senha"] = "Trocar Senha"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        UpdateSection();
+        Nav.LocationChanged += OnLocation;
+
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+
+        var ctx = await PortalAccess.GetUserContextAsync(userId);
+        if (ctx is null)
+        {
+            Nav.NavigateTo("/login", forceLoad: true);
+            return;
+        }
+
+        _userName = string.IsNullOrWhiteSpace(ctx.FullName) ? ctx.Email : ctx.FullName;
+        _mustChangePassword = ctx.MustChangePassword;
+        _isOnChangePasswordPage = new Uri(Nav.Uri).AbsolutePath.Equals("/portal/trocar-senha", StringComparison.OrdinalIgnoreCase);
+
+        if (ctx.ClientId is null)
+        {
+            // User com role Client mas sem ClientId — situação inválida, força logout
+            Nav.NavigateTo("/auth/logout", forceLoad: true);
+            return;
+        }
+
+        if (_mustChangePassword && !_isOnChangePasswordPage)
+        {
+            Nav.NavigateTo("/portal/trocar-senha", forceLoad: false);
+        }
+    }
+
+    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateSection();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateSection()
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath.Trim('/');
+        // Espera-se /portal[/sub] — pega o "sub"
+        var parts = path.Split('/');
+        var sub = parts.Length >= 2 ? parts[1] : "";
+        _sectionLabel = PortalSectionMap.TryGetValue(sub, out var v) ? v : "Portal";
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Trim().Split('@')[0].Split(new[] { ' ', '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..1].ToUpperInvariant();
+        return (parts[0][0].ToString() + parts[^1][0]).ToUpperInvariant();
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocation;
+}

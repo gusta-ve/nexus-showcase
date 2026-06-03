@@ -1,0 +1,181 @@
+@inject Microsoft.Extensions.Configuration.IConfiguration Config
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+    @* Open Graph / Twitter — preview de link no LinkedIn, WhatsApp, etc. *@
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://gustavoti.com" />
+    <meta property="og:title" content="Gustavo Almeida — Suporte de TI em São Paulo" />
+    <meta property="og:description" content="Suporte técnico de TI em SP — formatação, Wi-Fi, manutenção e recuperação. Atendimento humano, sem enrolação." />
+    <meta property="og:image" content="https://gustavoti.com/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    @if (IsDemo)
+    {
+        <meta name="robots" content="noindex, nofollow" />
+    }
+
+    <HeadOutlet />
+    <style>
+        /* Pintura inicial: garante que o fundo já nasce preto da marca,
+           sem flash branco no F5 antes do app.css carregar. */
+        html, body { background: #050608; color: #fafafa; margin: 0; }
+        #nx-boot {
+            position: fixed; inset: 0; z-index: 99999;
+            background: #050608; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 18px;
+            transition: opacity .35s ease-out;
+        }
+        #nx-boot.nx-boot-hidden { opacity: 0; pointer-events: none; }
+        .nx-boot-logo {
+            width: 56px; height: 56px;
+            display: flex; align-items: center; justify-content: center;
+            color: #00c2ff;
+            animation: nx-boot-pulse 1.4s ease-in-out infinite;
+        }
+        .nx-boot-logo svg { width: 100%; height: 100%; }
+        .nx-boot-text {
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+            color: #5a6a75; font-weight: 600;
+        }
+        @@keyframes nx-boot-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 12px rgba(0,194,255,0.45)); }
+            50% { opacity: 0.55; transform: scale(0.94); filter: drop-shadow(0 0 4px rgba(0,194,255,0.15)); }
+        }
+        /* Reconexão do Blazor Server — tema escuro */
+        #components-reconnect-modal {
+            display: none;
+            position: fixed; inset: 0; z-index: 99998;
+            background: rgba(5,6,8,0.85);
+            align-items: center; justify-content: center;
+        }
+        /* Delay de 3s: cobre a conexão inicial sem exibir o modal.
+           Só aparece de facto numa reconexão real (demora mais que isso). */
+        #components-reconnect-modal.components-reconnect-show {
+            display: flex;
+            opacity: 0;
+            animation: nx-reconnect-in .3s ease 3s forwards;
+        }
+        @@keyframes nx-reconnect-in { to { opacity: 1; } }
+        .nx-reconnect-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 32px 40px;
+            text-align: center;
+            display: flex; flex-direction: column; align-items: center; gap: 16px;
+        }
+        .nx-reconnect-icon {
+            width: 44px; height: 44px; color: #00c2ff;
+            animation: nx-boot-pulse 1.4s ease-in-out infinite;
+        }
+        .nx-reconnect-icon svg { width: 100%; height: 100%; }
+        .nx-reconnect-title {
+            font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600;
+            color: #fafafa; letter-spacing: -0.01em;
+        }
+        .nx-reconnect-sub {
+            font-family: 'Inter', sans-serif; font-size: 12px;
+            color: #5a6a75; margin-top: -8px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Boot screen: aparece imediatamente no F5, some assim que Blazor toma controle -->
+    <div id="nx-boot">
+        <div class="nx-boot-logo">
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="50,8 88,29 88,71 50,92 12,71 12,29"
+                         fill="none" stroke="currentColor" stroke-width="3" />
+                <text x="50" y="62" text-anchor="middle"
+                      font-family="Inter, sans-serif" font-weight="800" font-size="36"
+                      fill="currentColor">G</text>
+            </svg>
+        </div>
+        <div class="nx-boot-text">Carregando…</div>
+    </div>
+
+    <div id="components-reconnect-modal">
+        <div class="nx-reconnect-card">
+            <div class="nx-reconnect-icon">
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <polygon points="50,8 88,29 88,71 50,92 12,71 12,29"
+                             fill="none" stroke="currentColor" stroke-width="3" />
+                    <text x="50" y="62" text-anchor="middle"
+                          font-family="Inter, sans-serif" font-weight="800" font-size="36"
+                          fill="currentColor">G</text>
+                </svg>
+            </div>
+            <div class="nx-reconnect-title">Reconectando…</div>
+            <div class="nx-reconnect-sub">Aguarde um momento</div>
+        </div>
+    </div>
+
+    @if (IsDemo)
+    {
+        <div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99990;background:#0d1115;border:1px solid #1f2a33;color:#93a1ad;font:600 12px/1 'Inter',sans-serif;padding:8px 14px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.45);white-space:nowrap;">
+            🔒 Ambiente de demonstração · dados fictícios
+        </div>
+    }
+
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script>
+        // Inicia o circuit manualmente só pra baixar o log do SignalR no cliente
+        // pra "warning" — sem isso o console enche de Information ("Normalizing
+        // _blazor", "WebSocket connected"). Puramente cosmético; não muda comportamento.
+        Blazor.start({
+            circuit: {
+                configureSignalR: builder => builder.configureLogging("warning")
+            }
+        });
+    </script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="js/nx-bell.js"></script>
+    <script src="js/nx-rotator.js"></script>
+    <script src="js/nx-auth.js"></script>
+    <script src="js/nx-ui.js"></script>
+    <script>
+        (function () {
+            const hide = () => {
+                const el = document.getElementById('nx-boot');
+                if (!el) return;
+                el.classList.add('nx-boot-hidden');
+                setTimeout(() => el.remove(), 400);
+            };
+            // SSR já pintou — esconde logo após o primeiro frame para o usuário
+            // ver o conteúdo imediatamente; circuito interativo estabelece em segundo plano.
+            const onReady = () => requestAnimationFrame(() => requestAnimationFrame(hide));
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', onReady);
+            } else {
+                onReady();
+            }
+            // Failsafe: nunca deixa preso mais que 6s
+            setTimeout(hide, 6000);
+        })();
+    </script>
+</body>
+
+</html>
+
+@code {
+    private bool IsDemo =>
+        string.Equals(Config["App:IsDemo"], "true", StringComparison.OrdinalIgnoreCase);
+}

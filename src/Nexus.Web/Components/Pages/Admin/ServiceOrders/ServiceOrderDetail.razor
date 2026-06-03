@@ -1,0 +1,187 @@
+@page "/ordens-servico/{Id:guid}"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@using Nexus.Application.Features.ServiceOrders
+@using Nexus.Domain.Enums
+@inject ServiceOrderService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_data?.Number ?? "OS") · Nexus</PageTitle>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_data is null)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <MudText>OS não encontrada.</MudText>
+    </MudPaper>
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <div class="nexus-breadcrumb"><a href="/ordens-servico">← Ordens de Serviço</a></div>
+            <h1 class="nexus-h1"><code>@_data.Number</code> · @_data.Title</h1>
+            <div class="nexus-sub">
+                @(_data.ClientName ?? "Sem cliente")
+                · Emitida em @_data.CreatedAt.ToString("dd/MM/yyyy")
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton Href="@($"/api/docs/service-orders/{_data.Id}/pdf")" Target="_blank"
+                       Color="Color.Primary" Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.PictureAsPdf">Baixar PDF</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit">Editar</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.Delete" OnClick="Delete">Excluir</MudButton>
+        </div>
+    </div>
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="8">
+            @if (!string.IsNullOrWhiteSpace(_data.Description))
+            {
+                <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                    <MudText Typo="Typo.h6" Class="mb-2">Descrição</MudText>
+                    <div class="ticket-desc">@_data.Description</div>
+                </MudPaper>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_data.Checklist))
+            {
+                <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                    <MudText Typo="Typo.h6" Class="mb-2">Checklist</MudText>
+                    <div class="ticket-desc">@_data.Checklist</div>
+                </MudPaper>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_data.TechnicianNotes))
+            {
+                <MudPaper Class="nexus-panel" Elevation="0">
+                    <MudText Typo="Typo.h6" Class="mb-2" Style="color:var(--nx-warning)">🔒 Observações técnicas (interno)</MudText>
+                    <div class="ticket-desc">@_data.TechnicianNotes</div>
+                </MudPaper>
+            }
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Status</MudText>
+                <div style="margin-bottom:14px">
+                    <MudChip T="string" Size="Size.Medium" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                    @if (_data.Status == DocumentStatus.Draft)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Sent))">Iniciar execução</MudButton>
+                    }
+                    @if (_data.Status == DocumentStatus.Sent)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Success"
+                                   StartIcon="@Icons.Material.Filled.CheckCircle"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Accepted))">Concluir</MudButton>
+                        <MudButton FullWidth="true" Variant="Variant.Outlined" Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.Cancel"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Rejected))">Cancelar</MudButton>
+                    }
+                    @if (_data.Status == DocumentStatus.Accepted || _data.Status == DocumentStatus.Rejected)
+                    {
+                        <MudButton FullWidth="true" Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Undo"
+                                   OnClick="@(() => ChangeStatus(DocumentStatus.Draft))">Voltar pra Rascunho</MudButton>
+                    }
+                </div>
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Valores</MudText>
+                @if ((_data.LaborValue ?? 0) > 0)
+                { <div class="ticket-meta"><span>Mão de obra</span><b>@_data.LaborValue?.ToString("C2")</b></div> }
+                @if ((_data.PartsValue ?? 0) > 0)
+                { <div class="ticket-meta"><span>Peças</span><b>@_data.PartsValue?.ToString("C2")</b></div> }
+                @if ((_data.Discount ?? 0) > 0)
+                { <div class="ticket-meta"><span>Desconto</span><b style="color:var(--nx-success)">-@_data.Discount?.ToString("C2")</b></div> }
+                <MudDivider Class="my-2" />
+                <div class="ticket-meta">
+                    <span style="font-size:14px;font-weight:600">TOTAL</span>
+                    <b style="color:var(--nx-primary);font-size:18px">@(_data.Total?.ToString("C2") ?? "R$ 0,00")</b>
+                </div>
+            </MudPaper>
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Timeline</MudText>
+                <div class="ticket-meta"><span>Criada</span><b>@_data.CreatedAt.ToString("dd/MM HH:mm")</b></div>
+                @if (_data.ScheduledDate is not null)
+                { <div class="ticket-meta"><span>Agendada</span><b>@_data.ScheduledDate?.ToString("dd/MM/yyyy")</b></div> }
+                @if (_data.StartedAt is not null)
+                { <div class="ticket-meta"><span>Iniciada</span><b>@_data.StartedAt?.ToString("dd/MM HH:mm")</b></div> }
+                @if (_data.CompletedAt is not null)
+                { <div class="ticket-meta"><span>Concluída</span><b>@_data.CompletedAt?.ToString("dd/MM HH:mm")</b></div> }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ServiceOrderDetailDto? _data;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try { _data = await Svc.GetDetailAsync(Id); }
+        finally { _loading = false; }
+    }
+
+    private async Task OpenEdit()
+    {
+        var parameters = new DialogParameters { ["OrderId"] = Id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<ServiceOrderFormDialog>("Editar OS", parameters, options);
+        if ((await dlg.Result) is { Canceled: false }) await Load();
+    }
+
+    private async Task ChangeStatus(DocumentStatus s)
+    {
+        var r = await Svc.ChangeStatusAsync(Id, s);
+        if (r.Succeeded) { Snackbar.Add("Status atualizado.", Severity.Success); await Load(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private async Task Delete()
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir OS", $"Excluir {_data!.Number}?",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await Svc.DeleteAsync(Id);
+        if (r.Succeeded) { Snackbar.Add("Excluída.", Severity.Success); Nav.NavigateTo("/ordens-servico"); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => Color.Default,
+        DocumentStatus.Sent => Color.Primary,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => "Rascunho",
+        DocumentStatus.Sent => "Em execução",
+        DocumentStatus.Accepted => "Concluída",
+        DocumentStatus.Rejected => "Cancelada",
+        _ => s.ToString()
+    };
+}

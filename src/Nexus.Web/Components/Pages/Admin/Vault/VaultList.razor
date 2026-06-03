@@ -1,0 +1,181 @@
+@page "/cofre"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Vault
+@inject VaultService VaultSvc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Cofre de Senhas — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Cofre de Senhas</h1>
+        <p class="nexus-sub">Credenciais cifradas em AES-256-GCM · senha só aparece sob demanda</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Nova Entrada
+    </MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" LoadingProgressColor="Color.Primary"
+              T="VaultEntryListItemDto">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por nome, usuário, URL, tag..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_category" @bind-Value:after="Reload"
+                               Label="Categoria" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                        <MudSelectItem T="string" Value="@(null)">Todas</MudSelectItem>
+                        @foreach (var c in _categories)
+                        {
+                            <MudSelectItem T="string" Value="@c">@c</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSwitch @bind-Value="_favoritesOnly" @bind-Value:after="Reload"
+                               Label="Só favoritos" Color="Color.Warning" />
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh></MudTh>
+            <MudTh>Nome</MudTh>
+            <MudTh>Categoria</MudTh>
+            <MudTh>Usuário</MudTh>
+            <MudTh>URL</MudTh>
+            <MudTh>Último uso</MudTh>
+            <MudTh Style="text-align:right">Ações</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudIconButton Size="Size.Small"
+                               Icon="@(context.IsFavorite ? Icons.Material.Filled.Star : Icons.Material.Filled.StarBorder)"
+                               Color="@(context.IsFavorite ? Color.Warning : Color.Default)"
+                               OnClick="@(() => ToggleFavorite(context))" />
+            </MudTd>
+            <MudTd DataLabel="Nome"><b>@context.Name</b></MudTd>
+            <MudTd DataLabel="Categoria">
+                @if (context.Category is not null)
+                { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.Category</MudChip> }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Usuário"><code>@(context.Username ?? "—")</code></MudTd>
+            <MudTd DataLabel="URL">
+                @if (!string.IsNullOrWhiteSpace(context.Url))
+                {
+                    <a href="@context.Url" target="_blank" rel="noopener" class="vault-url">@TrimUrl(context.Url)</a>
+                }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Último uso">
+                @(context.LastUsedAt?.ToString("dd/MM HH:mm") ?? "—")
+            </MudTd>
+            <MudTd DataLabel="Ações" Style="text-align:right">
+                <MudTooltip Text="Revelar senha">
+                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                   Color="Color.Primary" OnClick="@(() => Reveal(context))" />
+                </MudTooltip>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               OnClick="@(() => OpenForm(context.Id))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error" OnClick="@(() => Delete(context))" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Cofre vazio. Cadastre sua primeira credencial.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<VaultEntryListItemDto> _table = null!;
+    private string? _search;
+    private string? _category;
+    private bool _favoritesOnly;
+    private bool _loading;
+    private IReadOnlyList<string> _categories = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await VaultSvc.GetCategoriesAsync();
+    }
+
+    private async Task<TableData<VaultEntryListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await VaultSvc.GetPagedAsync(_search, _category, _favoritesOnly,
+                state.Page + 1, state.PageSize, token);
+            return new TableData<VaultEntryListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private Task Reload() => _table is null ? Task.CompletedTask : _table.ReloadServerData();
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["EntryId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var title = id is null ? "Nova Entrada" : "Editar Entrada";
+        var dlg = await DialogService.ShowAsync<VaultFormDialog>(title, parameters, options);
+        var res = await dlg.Result;
+        if (res is not null && !res.Canceled)
+        {
+            _categories = await VaultSvc.GetCategoriesAsync();
+            await Reload();
+        }
+    }
+
+    private async Task Reveal(VaultEntryListItemDto e)
+    {
+        var r = await VaultSvc.RevealAsync(e.Id);
+        if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+        var parameters = new DialogParameters { ["Secret"] = r.Value };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<RevealSecretDialog>($"🔓 {e.Name}", parameters, options);
+        await Reload();
+    }
+
+    private async Task ToggleFavorite(VaultEntryListItemDto e)
+    {
+        await VaultSvc.ToggleFavoriteAsync(e.Id);
+        await Reload();
+    }
+
+    private async Task Delete(VaultEntryListItemDto e)
+    {
+        var ok = await DialogService.ShowMessageBoxAsync(
+            "Excluir entrada",
+            $"Excluir \"{e.Name}\"? Você ainda pode recuperá-la (soft-delete).",
+            yesText: "Excluir", cancelText: "Cancelar");
+        if (ok != true) return;
+        var r = await VaultSvc.DeleteAsync(e.Id);
+        if (r.Succeeded) { Snackbar.Add("Excluído.", Severity.Success); await Reload(); }
+        else Snackbar.Add(r.Error!, Severity.Error);
+    }
+
+    private static string TrimUrl(string url)
+    {
+        var u = url.Replace("https://", "").Replace("http://", "");
+        return u.Length > 35 ? u[..35] + "…" : u;
+    }
+}

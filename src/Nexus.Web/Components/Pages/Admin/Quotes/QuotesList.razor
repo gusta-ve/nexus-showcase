@@ -1,0 +1,136 @@
+@page "/orcamentos"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@using Nexus.Application.Features.Quotes
+@using Nexus.Domain.Enums
+@inject QuoteService Svc
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+<PageTitle>Orçamentos — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Orçamentos</h1>
+        <p class="nexus-sub">Gere orçamentos profissionais com PDF marcado · cliente recebe link no WhatsApp</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Novo Orçamento
+    </MudButton>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" T="QuoteListItemDto"
+              OnRowClick="@OnRowClick">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="7">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por número, título ou cliente..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudSelect T="DocumentStatus" SelectAll="true" SelectAllText="Todos"
+                               MultiSelection="true" @bind-SelectedValues="_statusFilter" @bind-SelectedValues:after="Reload"
+                               Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="DocumentStatus.Draft">Rascunho</MudSelectItem>
+                        <MudSelectItem Value="DocumentStatus.Sent">Enviado</MudSelectItem>
+                        <MudSelectItem Value="DocumentStatus.Accepted">Aprovado</MudSelectItem>
+                        <MudSelectItem Value="DocumentStatus.Rejected">Recusado</MudSelectItem>
+                        <MudSelectItem Value="DocumentStatus.Expired">Expirado</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Número</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Cliente</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:right">Total</MudTh>
+            <MudTh>Validade</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><code>@context.Number</code></MudTd>
+            <MudTd><b>@context.Title</b></MudTd>
+            <MudTd>@(context.ClientName ?? "—")</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">
+                    @StatusLabel(context.Status)
+                </MudChip>
+            </MudTd>
+            <MudTd Style="text-align:right"><b>@context.Total.ToString("C2")</b></MudTd>
+            <MudTd>@(context.ValidUntil?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum orçamento ainda. Crie o primeiro.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<QuoteListItemDto> _table = null!;
+    private string? _search;
+    private IReadOnlyCollection<DocumentStatus> _statusFilter = new HashSet<DocumentStatus>(Enum.GetValues<DocumentStatus>());
+    private bool _loading;
+
+    private async Task<TableData<QuoteListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await Svc.GetPagedAsync(_search, _statusFilter?.ToList(),
+                state.Page + 1, state.PageSize, token);
+            return new TableData<QuoteListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private Task Reload() => _table is null ? Task.CompletedTask : _table.ReloadServerData();
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<QuoteListItemDto> args)
+        => Nav.NavigateTo($"/orcamentos/{args.Item!.Id}");
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["QuoteId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var dlg = await DialogService.ShowAsync<QuoteFormDialog>(id is null ? "Novo Orçamento" : "Editar Orçamento", parameters, options);
+        var res = await dlg.Result;
+        if (res is { Canceled: false, Data: Guid newId })
+        {
+            // Navega pro detalhe pra preencher os itens
+            if (id is null) Nav.NavigateTo($"/orcamentos/{newId}");
+            else await Reload();
+        }
+    }
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => Color.Default,
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Draft => "Rascunho",
+        DocumentStatus.Sent => "Enviado",
+        DocumentStatus.Accepted => "Aprovado",
+        DocumentStatus.Rejected => "Recusado",
+        DocumentStatus.Expired => "Expirado",
+        _ => s.ToString()
+    };
+}

@@ -1,0 +1,39 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.vscode/
+*.userprefs
+artifacts/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+## Rider / Visual Studio
+.idea/
+*.sln.iml
+
+## Logs
+logs/
+*.log
+
+## Secrets / local config
+appsettings.*.local.json
+.env
+*.pfx
+*.key
+
+## Local compose overrides (env-specific, never commit)
+docker-compose.override.yml
+
+## OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,84 @@
+@using Nexus.Application.Features.Notes
+@inject NoteService Svc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Obrigatório" Variant="Variant.Outlined" MaxLength="200" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Content" Label="Conteúdo (markdown OK)"
+                                  Lines="10" Variant="Variant.Outlined" MaxLength="50000" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags" Variant="Variant.Outlined" MaxLength="500" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Color" Label="Cor" Variant="Variant.Outlined" Clearable="true">
+                        <MudSelectItem T="string" Value="@(null)">Padrão</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("cyan")">Ciano</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("amber")">Amarelo</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("green")">Verde</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("pink")">Rosa</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("violet")">Violeta</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_model.IsPinned" Label="Fixar no topo" Color="Color.Warning" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? NoteId { get; set; }
+
+    private MudForm _form = null!;
+    private NoteFormDto _model = new();
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (NoteId is { } id)
+        {
+            var loaded = await Svc.GetForEditAsync(id);
+            if (loaded is not null) _model = loaded;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await Svc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Nota atualizada.", Severity.Success);
+            }
+            else
+            {
+                var r = await Svc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Nota criada.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

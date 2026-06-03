@@ -1,0 +1,100 @@
+@using Nexus.Application.Features.Servers
+@inject ServersService Svc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Name" Label="Nome do serviço *" Required="true"
+                                  RequiredError="Obrigatório" Variant="Variant.Outlined"
+                                  Placeholder="Postgres · Nginx · n8n · Portainer" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSwitch @bind-Value="_model.IsRunning" Label="Rodando" Color="Color.Success" />
+                </MudItem>
+
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.Protocol" Label="Protocolo" Variant="Variant.Outlined"
+                                  Placeholder="http / tcp / https" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.Port" Label="Porta" Variant="Variant.Outlined"
+                                  Placeholder="8080" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSwitch @bind-Value="_model.IsPublic" Label="Exposto na internet" Color="Color.Warning" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Url" Label="URL completa (se aplicável)"
+                                  Variant="Variant.Outlined" Placeholder="https://..." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição"
+                                  Lines="2" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid ServerId { get; set; }
+    [Parameter] public ServerServiceDto? Existing { get; set; }
+
+    private MudForm _form = null!;
+    private ServerServiceFormDto _model = new();
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        _model.ServerEntryId = ServerId;
+        if (Existing is not null)
+        {
+            _model = new ServerServiceFormDto
+            {
+                Id = Existing.Id,
+                ServerEntryId = ServerId,
+                Name = Existing.Name,
+                Port = Existing.Port,
+                Protocol = Existing.Protocol,
+                Description = Existing.Description,
+                Url = Existing.Url,
+                IsPublic = Existing.IsPublic,
+                IsRunning = Existing.IsRunning
+            };
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await Svc.UpdateServiceAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            }
+            else
+            {
+                var r = await Svc.AddServiceAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            }
+            Snackbar.Add("Serviço salvo.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

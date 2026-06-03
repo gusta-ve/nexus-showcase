@@ -1,0 +1,132 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexus_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nexus_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - nexus_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexus_user} -d ${POSTGRES_DB:-nexus_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nexus_net
+
+  web:
+    build:
+      context: .
+      dockerfile: src/Nexus.Web/Dockerfile
+    container_name: nexus_web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-nexus_db};Username=${POSTGRES_USER:-nexus_user};Password=${POSTGRES_PASSWORD}"
+      Security__EncryptionKey: ${Security__EncryptionKey:?defina Security__EncryptionKey no .env (openssl rand -base64 32)}
+      Identity__AdminEmail: ${Identity__AdminEmail:-admin@nexus.local}
+      Identity__AdminPassword: "${Identity__AdminPassword:?Identity__AdminPassword is required}"
+      Proxy__BehindTls: "true"
+      # Email pra eventos críticos (chamado novo + server down).
+      # Desabilitado por padrão — habilite definindo Email__Enabled=true no .env
+      # junto com SMTP host/credenciais. Compatível com Gmail App Password, SendGrid SMTP, etc.
+      Email__Enabled: "${Email__Enabled:-false}"
+      Email__From: "${Email__From:-}"
+      Email__AdminTo: "${Email__AdminTo:-}"
+      Email__SmtpHost: "${Email__SmtpHost:-}"
+      Email__SmtpPort: "${Email__SmtpPort:-587}"
+      Email__SmtpUser: "${Email__SmtpUser:-}"
+      Email__SmtpPass: "${Email__SmtpPass:-}"
+      Email__UseSsl: "${Email__UseSsl:-true}"
+    volumes:
+      - nexus_dpkeys:/home/app/dpkeys
+    expose:
+      - "8080"
+    networks:
+      - nexus_net
+
+  # ───────── Instância de DEMONSTRAÇÃO (demo.gustavoti.com) ─────────
+  # Totalmente isolada da produção: banco próprio, volumes próprios, dados
+  # 100% fictícios (auto-seed). Segredos vêm do .env (DEMO_*), nunca do
+  # código — só o login de admin/portal é público (exibido na tela de login).
+  postgres-demo:
+    image: postgres:16-alpine
+    container_name: nexus_postgres_demo
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexus_demo
+      POSTGRES_USER: demo_user
+      POSTGRES_PASSWORD: "${DEMO_DB_PASSWORD:-}"
+    volumes:
+      - nexus_demo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo_user -d nexus_demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nexus_net
+
+  web-demo:
+    build:
+      context: .
+      dockerfile: src/Nexus.Web/Dockerfile
+    container_name: nexus_web_demo
+    restart: unless-stopped
+    depends_on:
+      postgres-demo:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=postgres-demo;Port=5432;Database=nexus_demo;Username=demo_user;Password=${DEMO_DB_PASSWORD:-}"
+      # Chave de cifra do cofre (dados fictícios) — definida no .env.
+      Security__EncryptionKey: "${DEMO_ENCRYPTION_KEY:-}"
+      # Login admin da demo — exibido na própria tela; senha vem do .env.
+      Identity__AdminEmail: "demo@gustavoti.com"
+      Identity__AdminPassword: "${DEMO_ADMIN_PASSWORD:-}"
+      # Liga o auto-seed (só aqui; a produção fica com a flag desligada).
+      Seed__DemoData: "true"
+      App__IsDemo: "true"
+      Proxy__BehindTls: "true"
+      Email__Enabled: "false"
+    volumes:
+      - nexus_demo_dpkeys:/home/app/dpkeys
+    expose:
+      - "8080"
+    networks:
+      - nexus_net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: nexus_caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NEXUS_DOMAIN: "${NEXUS_DOMAIN:?NEXUS_DOMAIN is required}"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - nexus_caddy_data:/data
+      - nexus_caddy_config:/config
+    networks:
+      - nexus_net
+
+volumes:
+  nexus_pgdata:
+  nexus_dpkeys:
+  nexus_demo_pgdata:
+  nexus_demo_dpkeys:
+  nexus_caddy_data:
+  nexus_caddy_config:
+
+networks:
+  nexus_net:

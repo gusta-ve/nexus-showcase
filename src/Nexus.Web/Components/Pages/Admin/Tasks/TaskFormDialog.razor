@@ -1,0 +1,103 @@
+@using Nexus.Application.Features.Tasks
+@using Nexus.Domain.Enums
+@inject WorkItemService Svc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Obrigatório" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição" Lines="3"
+                                  Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Priority" Label="Prioridade" Variant="Variant.Outlined">
+                        <MudSelectItem Value="WorkItemPriority.Low">Baixa</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.Medium">Média</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.High">Alta</MudSelectItem>
+                        <MudSelectItem Value="WorkItemPriority.Urgent">Urgente</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Status" Label="Status" Variant="Variant.Outlined">
+                        <MudSelectItem Value="WorkItemStatus.Todo">A fazer</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.InProgress">Em andamento</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.Done">Concluída</MudSelectItem>
+                        <MudSelectItem Value="WorkItemStatus.Cancelled">Cancelada</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_due" Label="Vencimento" Variant="Variant.Outlined"
+                                   DateFormat="dd/MM/yyyy" Clearable="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Category" Label="Categoria" Variant="Variant.Outlined"
+                                  Placeholder="Cliente / Pessoal / Estudo" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Tags" Label="Tags (separadas por vírgula)"
+                                  Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? TaskId { get; set; }
+
+    private MudForm _form = null!;
+    private WorkItemFormDto _model = new();
+    private DateTime? _due;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TaskId is { } id)
+        {
+            var loaded = await Svc.GetForEditAsync(id);
+            if (loaded is not null)
+            {
+                _model = loaded;
+                _due = loaded.DueDate;
+            }
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _model.DueDate = _due;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await Svc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Tarefa atualizada.", Severity.Success);
+            }
+            else
+            {
+                var r = await Svc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Tarefa criada.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

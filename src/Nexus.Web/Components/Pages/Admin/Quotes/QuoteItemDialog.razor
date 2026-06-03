@@ -1,0 +1,82 @@
+@using Nexus.Application.Features.Quotes
+@inject QuoteService QuoteSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição do item *"
+                                  Required="true" RequiredError="Obrigatório" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Quantity" Label="Quantidade *"
+                                     Min="0.01m" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.UnitPrice" Label="Valor unitário (R$) *"
+                                     Min="0.01m" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.body2" Align="Align.Right">
+                        Total: <b style="color:var(--nx-primary)">@((_model.Quantity * _model.UnitPrice).ToString("C2"))</b>
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid QuoteId { get; set; }
+    [Parameter] public QuoteItemDto? Existing { get; set; }
+
+    private MudForm _form = null!;
+    private QuoteItemFormDto _model = new();
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is not null)
+        {
+            _model = new QuoteItemFormDto
+            {
+                Id = Existing.Id,
+                Description = Existing.Description,
+                Quantity = Existing.Quantity,
+                UnitPrice = Existing.UnitPrice
+            };
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await QuoteSvc.UpdateItemAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            }
+            else
+            {
+                var r = await QuoteSvc.AddItemAsync(QuoteId, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            }
+            Snackbar.Add("Item salvo.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+}

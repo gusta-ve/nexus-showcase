@@ -1,0 +1,284 @@
+@page "/portal/chamados/{Id:guid}"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalTicketService TicketSvc
+@inject IPortalAccessService Access
+@inject Nexus.Application.Features.Reviews.ReviewService ReviewSvc
+@inject AuthenticationStateProvider AuthState
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_data?.Number ?? "Chamado") · Portal</PageTitle>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else if (_data is null)
+{
+    <MudPaper Class="nexus-panel" Elevation="0">
+        <MudText>Chamado não encontrado ou você não tem acesso.</MudText>
+        <MudButton Href="/portal/chamados" Variant="Variant.Outlined" Class="mt-3">Voltar</MudButton>
+    </MudPaper>
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <div class="nexus-breadcrumb"><a href="/portal/chamados">← Meus Chamados</a></div>
+            <h1 class="nexus-h1"><code>@_data.Number</code> · @_data.Title</h1>
+            <div class="nexus-sub">Aberto em @_data.CreatedAt.ToString("dd/MM/yyyy HH:mm")</div>
+        </div>
+    </div>
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="8">
+            <MudPaper Class="nexus-panel mb-4" Elevation="0">
+                <div class="ticket-chips">
+                    <MudChip T="string" Size="Size.Medium" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@CategoryLabel(_data.Category)</MudChip>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_data.Description))
+                {
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2">Descrição</MudText>
+                    <div class="ticket-desc">@_data.Description</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_data.Resolution))
+                {
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2" Style="color:var(--nx-success)">✓ Resolução</MudText>
+                    <div class="ticket-desc">@_data.Resolution</div>
+                }
+            </MudPaper>
+
+            @if (_canReview)
+            {
+                <MudPaper Class="nexus-panel mb-4" Elevation="0" Style="border-left: 3px solid #fbbf24">
+                    <MudText Typo="Typo.h6" Class="mb-1">Como foi o atendimento?</MudText>
+                    <MudText Typo="Typo.body2" Style="color:#a1a1aa" Class="mb-3">
+                        Sua avaliação me ajuda a melhorar e mostra pros próximos clientes que você confiou no serviço.
+                    </MudText>
+
+                    <div class="review-stars">
+                        @for (int i = 1; i <= 5; i++)
+                        {
+                            var n = i;
+                            <button type="button" class="review-star @(n <= _rating ? "active" : "")"
+                                    @onclick="() => _rating = n" aria-label="@n estrelas">★</button>
+                        }
+                        @if (_rating > 0)
+                        {
+                            <span class="review-stars-label">@RatingLabel(_rating)</span>
+                        }
+                    </div>
+
+                    <MudTextField @bind-Value="_reviewComment" Label="Quer escrever algo? (opcional)"
+                                  Lines="3" Variant="Variant.Outlined" Class="mt-3"
+                                  Placeholder="O que achou do atendimento? Posso usar pra mostrar pros próximos clientes." />
+
+                    <div style="display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap">
+                        <MudCheckBox @bind-Value="_allowPublic" Color="Color.Primary" T="bool"
+                                     Label="Posso mostrar essa avaliação na landing pra outros clientes?" />
+                        <MudSpacer />
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                   OnClick="SubmitReview" Disabled="@(_rating == 0 || _submittingReview)">
+                            @(_submittingReview ? "Enviando..." : "Enviar avaliação")
+                        </MudButton>
+                    </div>
+                </MudPaper>
+            }
+            else if (_alreadyReviewed)
+            {
+                <MudPaper Class="nexus-panel mb-4" Elevation="0"
+                          Style="border-left: 3px solid var(--nx-success); background: rgba(34,197,94,0.04)">
+                    <MudText Typo="Typo.body1">
+                        <b style="color:var(--nx-success)">✓ Você já avaliou esse atendimento.</b> Obrigado!
+                    </MudText>
+                </MudPaper>
+            }
+
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Conversa (@_data.Comments.Count)</MudText>
+
+                @if (_data.Comments.Count == 0)
+                {
+                    <div class="nexus-empty">Sem mensagens ainda.</div>
+                }
+                else
+                {
+                    @foreach (var c in _data.Comments)
+                    {
+                        <div class="ticket-comment @(c.IsFromClient ? "from-client" : "")">
+                            <div class="ticket-comment-head">
+                                <b>@(c.IsFromClient ? "Você" : (c.AuthorName ?? "Suporte"))</b>
+                                <span class="ticket-comment-time">@c.CreatedAt.ToString("dd/MM HH:mm")</span>
+                            </div>
+                            <div class="ticket-comment-body">@c.Content</div>
+                        </div>
+                    }
+                }
+
+                @if (_data.Status != TicketStatus.Closed && _data.Status != TicketStatus.Cancelled)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudTextField @bind-Value="_newComment" Label="Enviar mensagem"
+                                  Lines="3" Variant="Variant.Outlined" />
+                    <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                   OnClick="Send" Disabled="@(_sending || string.IsNullOrWhiteSpace(_newComment))">
+                            @(_sending ? "Enviando..." : "Enviar")
+                        </MudButton>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="nexus-panel" Elevation="0">
+                <MudText Typo="Typo.h6" Class="mb-3">Andamento</MudText>
+                <div class="ticket-meta"><span>Aberto</span><b>@_data.CreatedAt.ToString("dd/MM HH:mm")</b></div>
+                @if (_data.StartedAt is not null)
+                { <div class="ticket-meta"><span>Em atendimento desde</span><b>@_data.StartedAt?.ToString("dd/MM HH:mm")</b></div> }
+                @if (_data.ResolvedAt is not null)
+                { <div class="ticket-meta"><span>Resolvido em</span><b>@_data.ResolvedAt?.ToString("dd/MM HH:mm")</b></div> }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private PortalTicketDetailDto? _data;
+    private Guid? _clientId;
+    private string _userName = "";
+    private string _newComment = "";
+    private bool _sending;
+    private bool _loading = true;
+
+    // Avaliação (NPS pós-atendimento)
+    private int _rating;
+    private string _reviewComment = "";
+    private bool _allowPublic = true;
+    private bool _submittingReview;
+    private bool _alreadyReviewed;
+    private bool _canReview =>
+        _data is not null
+        && (_data.Status == TicketStatus.Resolved || _data.Status == TicketStatus.Closed)
+        && !_alreadyReviewed;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (userId is null) return;
+            var ctx = await Access.GetUserContextAsync(userId);
+            _clientId = ctx?.ClientId;
+            _userName = ctx?.FullName ?? ctx?.Email ?? "Cliente";
+            if (_clientId is null) return;
+            _data = await TicketSvc.GetMyTicketAsync(_clientId.Value, Id);
+            if (_data is not null
+                && (_data.Status == TicketStatus.Resolved || _data.Status == TicketStatus.Closed))
+            {
+                _alreadyReviewed = await ReviewSvc.HasReviewForTicketAsync(Id);
+            }
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task SubmitReview()
+    {
+        if (_clientId is null || _rating == 0) return;
+        _submittingReview = true;
+        try
+        {
+            var r = await ReviewSvc.CreateAsync(_clientId.Value, _userName,
+                new Nexus.Application.Features.Reviews.CreateReviewDto
+                {
+                    TicketId = Id,
+                    Rating = _rating,
+                    Comment = _reviewComment,
+                    AllowPublic = _allowPublic
+                });
+            if (r.Succeeded)
+            {
+                _alreadyReviewed = true;
+                Snackbar.Add("Obrigado pela avaliação!", Severity.Success);
+            }
+            else Snackbar.Add(r.Error ?? "Erro ao enviar avaliação.", Severity.Error);
+        }
+        finally { _submittingReview = false; }
+    }
+
+    private static string RatingLabel(int r) => r switch
+    {
+        1 => "Péssimo",
+        2 => "Ruim",
+        3 => "Ok",
+        4 => "Bom",
+        5 => "Excelente",
+        _ => ""
+    };
+
+    private async Task Send()
+    {
+        if (_clientId is null || string.IsNullOrWhiteSpace(_newComment)) return;
+        _sending = true;
+        try
+        {
+            var r = await TicketSvc.AddCommentAsync(_clientId.Value, Id,
+                new PortalAddCommentDto { Content = _newComment }, _userName);
+            if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            _newComment = "";
+            await Load();
+        }
+        finally { _sending = false; }
+    }
+
+    private static Color StatusColor(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => Color.Info,
+        TicketStatus.Analyzing => Color.Warning,
+        TicketStatus.InProgress => Color.Primary,
+        TicketStatus.WaitingClient => Color.Tertiary,
+        TicketStatus.Resolved => Color.Success,
+        TicketStatus.Closed => Color.Default,
+        TicketStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Aberto",
+        TicketStatus.Analyzing => "Em análise",
+        TicketStatus.InProgress => "Em atendimento",
+        TicketStatus.WaitingClient => "Aguardando você",
+        TicketStatus.Resolved => "Resolvido",
+        TicketStatus.Closed => "Fechado",
+        TicketStatus.Cancelled => "Cancelado",
+        _ => s.ToString()
+    };
+
+    private static string CategoryLabel(TicketCategory c) => c switch
+    {
+        TicketCategory.Support => "Suporte",
+        TicketCategory.Network => "Redes",
+        TicketCategory.Infrastructure => "Infraestrutura",
+        TicketCategory.Security => "Segurança",
+        TicketCategory.Development => "Desenvolvimento",
+        TicketCategory.Automation => "Automação",
+        TicketCategory.Hardware => "Hardware",
+        TicketCategory.Software => "Software",
+        TicketCategory.Consulting => "Consultoria",
+        _ => "Outro"
+    };
+}

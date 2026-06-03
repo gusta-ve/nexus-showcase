@@ -1,0 +1,186 @@
+@page "/portal/orcamentos/{Id:guid}"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalQuoteService QuoteSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IDialogService Dialog
+
+<PageTitle>Orçamento · Portal</PageTitle>
+
+@if (_data is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <div class="nexus-page-header">
+        <div>
+            <MudButton Href="/portal/orcamentos" StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Variant="Variant.Text" Size="Size.Small">Voltar</MudButton>
+            <h1 class="nexus-h1" style="margin-top:6px"><code>@_data.Number</code> · @_data.Title</h1>
+            <p class="nexus-sub">
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(_data.Status)">@StatusLabel(_data.Status)</MudChip>
+                @if (_data.ValidUntil is not null)
+                {
+                    <span style="margin-left:8px">válido até <b>@_data.ValidUntil?.ToString("dd/MM/yyyy")</b></span>
+                }
+            </p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <MudButton Href="@($"/api/portal/docs/quotes/{_data.Id}/pdf")" Target="_blank"
+                       Color="Color.Primary" Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.PictureAsPdf">Baixar PDF</MudButton>
+
+            @if (_data.Status == DocumentStatus.Sent)
+            {
+                <MudButton Color="Color.Success" Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Check"
+                           OnClick="ConfirmAccept" Disabled="_acting">Aprovar</MudButton>
+                <MudButton Color="Color.Error" Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Close"
+                           OnClick="ConfirmReject" Disabled="_acting">Recusar</MudButton>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_data.Description))
+    {
+        <MudPaper Class="nexus-panel mb-3" Elevation="0">
+            <MudText Typo="Typo.body1" Style="white-space:pre-wrap">@_data.Description</MudText>
+        </MudPaper>
+    }
+
+    <MudPaper Class="nexus-panel mb-3" Elevation="0">
+        <MudText Typo="Typo.h6" Class="mb-2">Itens</MudText>
+        <MudTable Items="_data.Items" Hover="true" Dense="true" Elevation="0" Class="nexus-table">
+            <HeaderContent>
+                <MudTh>Descrição</MudTh>
+                <MudTh Style="text-align:right">Qtd</MudTh>
+                <MudTh Style="text-align:right">Unit.</MudTh>
+                <MudTh Style="text-align:right">Total</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Description</MudTd>
+                <MudTd Style="text-align:right">@context.Quantity.ToString("N2")</MudTd>
+                <MudTd Style="text-align:right">R$ @context.UnitPrice.ToString("N2")</MudTd>
+                <MudTd Style="text-align:right"><b>R$ @context.Total.ToString("N2")</b></MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <div class="nexus-empty">Sem itens.</div>
+            </NoRecordsContent>
+        </MudTable>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+            <div style="text-align:right">
+                <div style="font-size:13px;color:#a1a1aa">Total</div>
+                <div style="font-size:24px;font-weight:700;color:#00c2ff">R$ @_data.Total.ToString("N2")</div>
+            </div>
+        </div>
+    </MudPaper>
+
+    @if (!string.IsNullOrWhiteSpace(_data.Notes))
+    {
+        <MudPaper Class="nexus-panel mb-3" Elevation="0">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">Observações</MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;color:#cbd5e1">@_data.Notes</MudText>
+        </MudPaper>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_data.Terms))
+    {
+        <MudPaper Class="nexus-panel" Elevation="0">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">Termos</MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;color:#cbd5e1">@_data.Terms</MudText>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private PortalQuoteDetailDto? _data;
+    private Guid? _clientId;
+    private bool _acting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+        if (_clientId is null) { Nav.NavigateTo("/portal/orcamentos"); return; }
+
+        _data = await QuoteSvc.GetDetailAsync(Id, _clientId.Value);
+        if (_data is null) Nav.NavigateTo("/portal/orcamentos");
+    }
+
+    private async Task ConfirmAccept()
+    {
+        var ok = await Dialog.ShowMessageBoxAsync(
+            "Aprovar orçamento",
+            $"Confirma a aprovação do orçamento {_data?.Number}? Em seguida vamos seguir com a execução.",
+            yesText: "Aprovar", cancelText: "Cancelar");
+        if (ok != true) return;
+
+        _acting = true;
+        try
+        {
+            var r = await QuoteSvc.AcceptAsync(Id, _clientId!.Value);
+            if (r.Succeeded)
+            {
+                Snackbar.Add("Orçamento aprovado! Em breve você terá retorno do atendimento.", Severity.Success);
+                _data = await QuoteSvc.GetDetailAsync(Id, _clientId.Value);
+            }
+            else Snackbar.Add(r.Error ?? "Não foi possível aprovar.", Severity.Error);
+        }
+        finally { _acting = false; }
+    }
+
+    private async Task ConfirmReject()
+    {
+        var ok = await Dialog.ShowMessageBoxAsync(
+            "Recusar orçamento",
+            $"Confirma que NÃO quer seguir com {_data?.Number}? Você pode pedir uma nova proposta depois.",
+            yesText: "Recusar", cancelText: "Cancelar");
+        if (ok != true) return;
+
+        _acting = true;
+        try
+        {
+            var r = await QuoteSvc.RejectAsync(Id, _clientId!.Value);
+            if (r.Succeeded)
+            {
+                Snackbar.Add("Orçamento recusado.", Severity.Info);
+                _data = await QuoteSvc.GetDetailAsync(Id, _clientId.Value);
+            }
+            else Snackbar.Add(r.Error ?? "Não foi possível registrar.", Severity.Error);
+        }
+        finally { _acting = false; }
+    }
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => "Aguardando sua resposta",
+        DocumentStatus.Accepted => "Aprovado",
+        DocumentStatus.Rejected => "Recusado",
+        DocumentStatus.Expired => "Expirado",
+        _ => s.ToString()
+    };
+}

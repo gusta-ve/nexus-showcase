@@ -1,0 +1,36 @@
+{$NEXUS_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy web:8080 {
+		header_up X-Forwarded-Proto https
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+www.{$NEXUS_DOMAIN} {
+	redir https://{$NEXUS_DOMAIN}{uri} permanent
+}
+
+# Instância de demonstração — isolada da produção (container web-demo + banco próprio).
+demo.{$NEXUS_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy web-demo:8080 {
+		header_up X-Forwarded-Proto https
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

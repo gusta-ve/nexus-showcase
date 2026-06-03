@@ -1,0 +1,118 @@
+@page "/portal/chamados/novo"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalTicketService TicketSvc
+@inject PortalEquipmentService EquipSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Abrir Chamado · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <div class="nexus-breadcrumb"><a href="/portal/chamados">← Meus Chamados</a></div>
+        <h1 class="nexus-h1">Abrir Chamado</h1>
+        <p class="nexus-sub">Descreva o problema com detalhes pra acelerar o atendimento</p>
+    </div>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudForm @ref="_form" Model="_model">
+        <MudGrid Spacing="3">
+            <MudItem xs="12">
+                <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                              RequiredError="Informe um título" Variant="Variant.Outlined"
+                              Placeholder="Ex: Computador travando ao abrir o sistema X"
+                              MaxLength="200" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect @bind-Value="_model.Category" Label="Categoria" Variant="Variant.Outlined">
+                    <MudSelectItem Value="TicketCategory.Support">Suporte / Manutenção</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Network">Redes</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Infrastructure">Servidores / Infra</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Security">Segurança</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Automation">Automação</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Development">Desenvolvimento</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Hardware">Hardware</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Software">Software</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Consulting">Consultoria</MudSelectItem>
+                    <MudSelectItem Value="TicketCategory.Other">Outro</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect @bind-Value="_model.Priority" Label="Prioridade" Variant="Variant.Outlined">
+                    <MudSelectItem Value="TicketPriority.Low">Baixa</MudSelectItem>
+                    <MudSelectItem Value="TicketPriority.Medium">Média</MudSelectItem>
+                    <MudSelectItem Value="TicketPriority.High">Alta</MudSelectItem>
+                    <MudSelectItem Value="TicketPriority.Critical">Crítica (urgente)</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="_model.Description" Label="Descrição detalhada *"
+                              Required="true" RequiredError="Descreva o problema"
+                              Lines="6" Variant="Variant.Outlined"
+                              Placeholder="O que aconteceu? Quando começou? Mensagem de erro? O que já tentou?"
+                              MaxLength="10000" />
+            </MudItem>
+        </MudGrid>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px">
+            <MudButton Href="/portal/chamados" Variant="Variant.Outlined">Cancelar</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_saving">
+                @(_saving ? "Abrindo..." : "Abrir chamado")
+            </MudButton>
+        </div>
+    </MudForm>
+</MudPaper>
+
+@code {
+    private MudForm _form = null!;
+    private PortalOpenTicketDto _model = new();
+    private bool _saving;
+    private Guid? _clientId;
+
+    [SupplyParameterFromQuery(Name = "eq")] public Guid? EquipmentId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+
+        // Se veio do botão "Reportar problema" de algum equipamento, pré-preenche o título
+        if (EquipmentId is { } eqId && _clientId is { } cid)
+        {
+            var eq = await EquipSvc.GetByIdAsync(eqId, cid);
+            if (eq is not null)
+            {
+                _model.Title = $"Problema em: {eq.Name}";
+                _model.Category = eq.Type?.ToLower().Contains("rede") == true
+                    ? TicketCategory.Network
+                    : TicketCategory.Hardware;
+            }
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid || _clientId is null) return;
+        _saving = true;
+        try
+        {
+            var r = await TicketSvc.OpenAsync(_clientId.Value, _model);
+            if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+            Snackbar.Add("Chamado aberto! Acompanhe pelo painel.", Severity.Success);
+            Nav.NavigateTo($"/portal/chamados/{r.Value}");
+        }
+        finally { _saving = false; }
+    }
+}

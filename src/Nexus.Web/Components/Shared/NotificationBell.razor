@@ -1,0 +1,241 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Notifications
+@inject IAlertService Alerts
+@inject IRealtimeSubscriber Subscriber
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="nx-bell-root" data-nx-bell-id="@_bellId">
+    <button type="button" class="nx-bell-btn @(_pulse ? "nx-bell-pulse" : "")"
+            @onclick="ToggleOpen"
+            aria-label="Notificações">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+        </svg>
+        @if (_unread > 0)
+        {
+            <span class="nx-bell-badge">@(_unread > 99 ? "99+" : _unread.ToString())</span>
+        }
+    </button>
+
+    <!-- painel sempre no DOM; visibilidade via data-open (CSS).
+         JS troca data-open INSTANT no click do botão, depois C# sincroniza state. -->
+    <div class="nx-bell-panel" data-open="@(_open ? "true" : "false")">
+            <div class="nx-bell-head">
+                <span><b>Notificações</b></span>
+                @if (_unread > 0)
+                {
+                    <button type="button" class="nx-bell-link" @onclick="MarkAllRead">marcar todas como lidas</button>
+                }
+            </div>
+
+            <div class="nx-bell-list">
+                @if (_items.Count == 0)
+                {
+                    <div class="nx-bell-empty">Sem notificações por enquanto.</div>
+                }
+                else
+                {
+                    @foreach (var n in _items)
+                    {
+                        <a class="nx-bell-row @(n.IsRead ? "" : "unread")"
+                           href="@(string.IsNullOrEmpty(n.ActionUrl) ? "#" : n.ActionUrl)"
+                           @onclick="@(() => OnRowClick(n))">
+                            <div class="nx-bell-row-title">
+                                <span class="nx-bell-dot @SeverityClass(n.Severity)"></span>
+                                <span><b>@n.Title</b></span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(n.Message))
+                            {
+                                <div class="nx-bell-row-msg">@n.Message</div>
+                            }
+                            <div class="nx-bell-row-time">@Relative(n.CreatedAt)</div>
+                        </a>
+                    }
+                }
+            </div>
+    </div>
+</div>
+
+
+@code {
+    private int _unread;
+    private List<AlertListItemDto> _items = [];
+    private string? _userId;
+    private bool _isAdmin;
+    private bool _pulse;
+    private bool _open;
+    private CancellationTokenSource? _pulseCts;
+    private readonly List<IDisposable> _subs = new();
+    private bool _subscribed;
+    private readonly string _bellId = Guid.NewGuid().ToString("N");
+    private DotNetObjectReference<NotificationBell>? _dotNetRef;
+
+    protected override void OnInitialized()
+    {
+        // Fecha o painel ao navegar pra outra página (incluindo clicks em <a href>
+        // dentro do próprio painel — após o click, navegação dispara LocationChanged).
+        Nav.LocationChanged += OnLocationChanged;
+        _dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _subscribed) return;
+        _subscribed = true;
+
+        // Liga o JS que abre/fecha o painel INSTANT no DOM (sem esperar round-trip Blazor)
+        await JS.InvokeVoidAsync("nxBell.attach", _bellId);
+
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _isAdmin = auth.User.IsInRole("Admin") || auth.User.IsInRole("Technician");
+
+        if (!string.IsNullOrEmpty(_userId))
+            _subs.Add(Subscriber.Subscribe($"user:{_userId}", OnRealtime));
+
+        foreach (var role in new[] { "Admin", "Technician", "Client" })
+            if (auth.User.IsInRole(role))
+                _subs.Add(Subscriber.Subscribe($"role:{role}", OnRealtime));
+
+        await Refresh();
+        StateHasChanged();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (_open)
+        {
+            _open = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ToggleOpen()
+    {
+        _open = !_open;
+        if (_open)
+        {
+            if (_unread > 0)
+            {
+                // Marca como lida no banco (badge zera) mas mantém o destaque
+                // visual nessa abertura — assim o user ainda enxerga quais eram novas.
+                await Alerts.MarkAllReadAsync(_userId, _isAdmin);
+                _unread = 0;
+            }
+            await JS.InvokeVoidAsync("nxBell.register", _bellId, _dotNetRef);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("nxBell.unregister", _bellId);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnOutsideClick()
+    {
+        if (_open)
+        {
+            _open = false;
+            await JS.InvokeVoidAsync("nxBell.unregister", _bellId);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnRealtime(RealtimeNotification payload)
+    {
+        await InvokeAsync(async () =>
+        {
+            // Toast curto pra avisar — some sozinho em ~3s e depois fica só no sino
+            Snackbar.Add(
+                string.IsNullOrWhiteSpace(payload.Message) ? payload.Title : $"{payload.Title} — {payload.Message}",
+                payload.Severity switch
+                {
+                    "error" => Severity.Error,
+                    "warning" => Severity.Warning,
+                    "success" => Severity.Success,
+                    _ => Severity.Info
+                },
+                config =>
+                {
+                    config.VisibleStateDuration = 3000;
+                    config.HideTransitionDuration = 250;
+                    config.ShowCloseIcon = false;
+                });
+
+            await Refresh();
+            _ = PulseAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task PulseAsync()
+    {
+        _pulseCts?.Cancel();
+        _pulseCts = new CancellationTokenSource();
+        var token = _pulseCts.Token;
+        _pulse = true;
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(700, token);
+            _pulse = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task Refresh()
+    {
+        _unread = await Alerts.GetUnreadCountAsync(_userId, _isAdmin);
+        var page = await Alerts.GetForUserAsync(_userId, _isAdmin, unreadOnly: false, 1, 20);
+        _items = page.Items.ToList();
+    }
+
+    // Click no row: marca como lida + fecha o painel. Navegação acontece via href do <a>.
+    private async Task OnRowClick(AlertListItemDto n)
+    {
+        _open = false;
+        if (!n.IsRead) await Alerts.MarkReadAsync(n.Id);
+        await Refresh();
+    }
+
+    private async Task MarkAllRead()
+    {
+        await Alerts.MarkAllReadAsync(_userId, _isAdmin);
+        await Refresh();
+    }
+
+    private static string SeverityClass(Nexus.Domain.Enums.AlertSeverity s) => s switch
+    {
+        Nexus.Domain.Enums.AlertSeverity.Critical => "error",
+        Nexus.Domain.Enums.AlertSeverity.Error => "error",
+        Nexus.Domain.Enums.AlertSeverity.Warning => "warning",
+        _ => "info"
+    };
+
+    private static string Relative(DateTime dt)
+    {
+        var d = DateTime.UtcNow - dt;
+        if (d.TotalMinutes < 1) return "agora";
+        if (d.TotalMinutes < 60) return $"há {(int)d.TotalMinutes} min";
+        if (d.TotalHours < 24) return $"há {(int)d.TotalHours} h";
+        return dt.ToString("dd/MM HH:mm");
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        // Best-effort: o circuit pode já estar fechando
+        try { _ = JS.InvokeVoidAsync("nxBell.unregister", _bellId); } catch { }
+        _dotNetRef?.Dispose();
+        _pulseCts?.Cancel();
+        _pulseCts?.Dispose();
+        foreach (var s in _subs) s.Dispose();
+    }
+}

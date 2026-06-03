@@ -1,0 +1,99 @@
+@page "/portal/ordens-servico"
+@layout ClientPortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@using Nexus.Application.Common.Interfaces
+@using Nexus.Application.Features.Portal
+@using Nexus.Domain.Enums
+@inject PortalServiceOrderService OsSvc
+@inject IPortalAccessService Access
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Ordens de Serviço · Portal</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Ordens de Serviço</h1>
+        <p class="nexus-sub">Histórico de atendimentos e checklists executados</p>
+    </div>
+</div>
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading"
+              OnRowClick="@OnRowClick" T="PortalServiceOrderListDto">
+        <HeaderContent>
+            <MudTh>Número</MudTh>
+            <MudTh>Título</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:right">Valor</MudTh>
+            <MudTh>Agendado</MudTh>
+            <MudTh>Concluído</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><code>@context.Number</code></MudTd>
+            <MudTd><b>@context.Title</b></MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">@StatusLabel(context.Status)</MudChip>
+            </MudTd>
+            <MudTd Style="text-align:right">@(context.Total is null ? "—" : $"R$ {context.Total:N2}")</MudTd>
+            <MudTd>@(context.ScheduledDate?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+            <MudTd>@(context.CompletedAt?.ToString("dd/MM/yyyy") ?? "—")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhuma OS no histórico.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<PortalServiceOrderListDto> _table = null!;
+    private bool _loading;
+    private Guid? _clientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+        var ctx = await Access.GetUserContextAsync(userId);
+        _clientId = ctx?.ClientId;
+    }
+
+    private async Task<TableData<PortalServiceOrderListDto>> LoadData(TableState state, CancellationToken token)
+    {
+        if (_clientId is null) return new TableData<PortalServiceOrderListDto> { Items = [], TotalItems = 0 };
+        _loading = true;
+        try
+        {
+            var page = await OsSvc.GetMyOrdersAsync(_clientId.Value, state.Page + 1, state.PageSize, token);
+            return new TableData<PortalServiceOrderListDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<PortalServiceOrderListDto> args)
+        => Nav.NavigateTo($"/portal/ordens-servico/{args.Item!.Id}");
+
+    private static Color StatusColor(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => Color.Info,
+        DocumentStatus.Accepted => Color.Success,
+        DocumentStatus.Rejected => Color.Error,
+        DocumentStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static string StatusLabel(DocumentStatus s) => s switch
+    {
+        DocumentStatus.Sent => "Em atendimento",
+        DocumentStatus.Accepted => "Concluído",
+        DocumentStatus.Rejected => "Cancelado",
+        DocumentStatus.Expired => "Pendente",
+        _ => s.ToString()
+    };
+}

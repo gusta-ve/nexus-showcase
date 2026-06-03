@@ -1,0 +1,48 @@
+@* Sidebar do admin — mostra apenas módulos implementados. *@
+
+<div class="nexus-nav-brand">
+    <HexLogomark Letter="N" Size="32" />
+    <div class="nexus-nav-brand-text">
+        <span class="nexus-nav-title">Gustavo Almeida</span>
+        <span class="nexus-nav-sub">painel · ops</span>
+    </div>
+</div>
+
+<MudNavMenu Class="nexus-navmenu">
+    <MudNavLink Href="/dashboard" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.SpaceDashboard">Dashboard</MudNavLink>
+
+    <div class="nexus-nav-group">OPERAÇÃO</div>
+    <MudNavLink Href="/clientes" Icon="@Icons.Material.Filled.Groups">Clientes</MudNavLink>
+    <MudNavLink Href="/chamados" Icon="@Icons.Material.Filled.ConfirmationNumber">Chamados</MudNavLink>
+    <MudNavLink Href="/financeiro" Icon="@Icons.Material.Filled.Payments">Financeiro</MudNavLink>
+    <MudNavLink Href="/orcamentos" Icon="@Icons.Material.Filled.RequestQuote">Orçamentos</MudNavLink>
+    <MudNavLink Href="/ordens-servico" Icon="@Icons.Material.Filled.Assignment">Ordens de Serviço</MudNavLink>
+    <MudNavLink Href="/avaliacoes" Icon="@Icons.Material.Filled.Star">Avaliações</MudNavLink>
+
+    <div class="nexus-nav-group">TÉCNICO</div>
+    <MudNavLink Href="/cofre" Icon="@Icons.Material.Filled.Lock">Cofre de Senhas</MudNavLink>
+    <MudNavLink Href="/servidores" Icon="@Icons.Material.Filled.Dns">Servidores</MudNavLink>
+    <MudNavLink Href="/conhecimento" Icon="@Icons.Material.Filled.MenuBook">Base de Conhecimento</MudNavLink>
+
+    <div class="nexus-nav-group">PRODUTIVIDADE</div>
+    <MudNavLink Href="/tarefas" Icon="@Icons.Material.Filled.CheckCircle">Tarefas</MudNavLink>
+    <MudNavLink Href="/notas" Icon="@Icons.Material.Filled.StickyNote2">Notas</MudNavLink>
+
+    <div class="nexus-nav-group">PÚBLICO</div>
+    <MudNavLink Href="/?landing=1" Icon="@Icons.Material.Filled.Language" Target="_blank">Ver landing page</MudNavLink>
+
+    <div class="nexus-nav-group">AUTOMAÇÃO</div>
+    <MudNavLink Href="/automacoes" Icon="@Icons.Material.Filled.Bolt">Automações</MudNavLink>
+    <MudNavLink Href="/integracoes" Icon="@Icons.Material.Filled.IntegrationInstructions">Integrações</MudNavLink>
+
+    <div class="nexus-nav-group">SISTEMA</div>
+    <MudNavLink Href="/dados-demo" Icon="@Icons.Material.Filled.AutoFixHigh">Dados de demonstração</MudNavLink>
+</MudNavMenu>
+
+<div class="nexus-drawer-footer" aria-hidden="false">
+    <span class="nexus-drawer-footer-dot" aria-hidden="true"></span>
+    <div class="nexus-drawer-footer-text">
+        <span class="nexus-drawer-footer-label">gustavoalm.com</span>
+        <span class="nexus-drawer-footer-meta">v1.0 · prod</span>
+    </div>
+</div>

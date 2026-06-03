@@ -1,0 +1,169 @@
+@using Nexus.Application.Features.Clients
+@using Nexus.Application.Features.Tickets
+@using Nexus.Domain.Enums
+@inject TicketService TicketSvc
+@inject ClientService ClientSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="_model.Title" Label="Título *" Required="true"
+                                  RequiredError="Informe o título" Variant="Variant.Outlined"
+                                  MaxLength="200" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect @bind-Value="_model.Priority" Label="Prioridade" Variant="Variant.Outlined">
+                        <MudSelectItem Value="TicketPriority.Low">Baixa</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.Medium">Média</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.High">Alta</MudSelectItem>
+                        <MudSelectItem Value="TicketPriority.Critical">Crítica</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Category" Label="Categoria" Variant="Variant.Outlined">
+                        <MudSelectItem Value="TicketCategory.Support">Suporte</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Network">Redes</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Infrastructure">Infraestrutura</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Security">Segurança</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Development">Desenvolvimento</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Automation">Automação</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Hardware">Hardware</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Software">Software</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Consulting">Consultoria</MudSelectItem>
+                        <MudSelectItem Value="TicketCategory.Other">Outro</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudAutocomplete T="ClientListItemDto" Label="Cliente (opcional)"
+                                     SearchFunc="SearchClients" Value="_selectedClient"
+                                     ValueChanged="OnClientChanged"
+                                     ToStringFunc="@(c => c?.Name ?? "")"
+                                     Variant="Variant.Outlined" Clearable="true"
+                                     ResetValueOnEmptyText="true"
+                                     CoerceText="true" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description" Label="Descrição" Lines="4"
+                                  Variant="Variant.Outlined" MaxLength="10000" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">Contato (se não houver cliente vinculado)</MudText>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.ContactName" Label="Nome do contato" Variant="Variant.Outlined" MaxLength="150" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.ContactWhatsApp" Label="WhatsApp" Variant="Variant.Outlined" MaxLength="30" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.ContactEmail" Label="Email" Variant="Variant.Outlined" MaxLength="256" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.PreferredTime" Label="Melhor horário" Variant="Variant.Outlined" MaxLength="100" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.ServiceValue" Label="Valor do serviço (R$)"
+                                     Min="0" Format="N2" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.InternalNotes" Label="Notas internas (só você vê)" Lines="2"
+                                  Variant="Variant.Outlined" MaxLength="2000" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="Submit" Disabled="_saving">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid? TicketId { get; set; }
+
+    private MudForm _form = null!;
+    private TicketFormDto _model = new();
+    private ClientListItemDto? _selectedClient;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TicketId is { } id)
+        {
+            var detail = await TicketSvc.GetDetailAsync(id);
+            if (detail is not null)
+            {
+                _model = new TicketFormDto
+                {
+                    Id = detail.Id,
+                    Title = detail.Title,
+                    Description = detail.Description,
+                    ClientId = detail.ClientId,
+                    ContactName = detail.ContactName,
+                    ContactEmail = detail.ContactEmail,
+                    ContactPhone = detail.ContactPhone,
+                    ContactWhatsApp = detail.ContactWhatsApp,
+                    PreferredTime = detail.PreferredTime,
+                    Priority = detail.Priority,
+                    Category = detail.Category,
+                    InternalNotes = detail.InternalNotes,
+                    ServiceValue = detail.ServiceValue
+                };
+                if (detail.ClientId is not null && detail.ClientName is not null)
+                {
+                    _selectedClient = new ClientListItemDto { Id = detail.ClientId.Value, Name = detail.ClientName };
+                }
+            }
+        }
+    }
+
+    private async Task<IEnumerable<ClientListItemDto>> SearchClients(string? value, CancellationToken ct)
+    {
+        var page = await ClientSvc.GetPagedAsync(value, 1, 10, ct);
+        return page.Items;
+    }
+
+    private void OnClientChanged(ClientListItemDto? c)
+    {
+        _selectedClient = c;
+        _model.ClientId = c?.Id;
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _saving = true;
+        try
+        {
+            if (_model.Id is { } id)
+            {
+                var r = await TicketSvc.UpdateAsync(id, _model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Chamado atualizado.", Severity.Success);
+            }
+            else
+            {
+                var r = await TicketSvc.CreateAsync(_model);
+                if (!r.Succeeded) { Snackbar.Add(r.Error!, Severity.Error); return; }
+                Snackbar.Add("Chamado criado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally { _saving = false; }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

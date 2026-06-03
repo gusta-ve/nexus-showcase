@@ -1,0 +1,99 @@
+@page "/integracoes"
+@attribute [Authorize(Roles = "Admin")]
+@using Nexus.Application.Common.Interfaces
+@inject IEmailService Email
+@inject ISnackbar Snackbar
+
+<PageTitle>Integrações · Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <span class="nexus-eyebrow">Sistema</span>
+        <h1 class="nexus-h1">Integrações</h1>
+        <p class="nexus-sub">
+            Canais externos pra notificar você fora da tela do Nexus.
+            Cada serviço é ligado/desligado por env e tem falha silenciosa
+            — se cair, o resto do app não é afetado.
+        </p>
+    </div>
+</div>
+
+<div class="int-grid">
+
+    <!-- Email -->
+    <div class="int-card">
+        <div class="int-card-head">
+            <div class="int-card-ico">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </div>
+            <div class="int-card-title">
+                <h3>Email transacional</h3>
+                <span class="int-card-sub">SMTP — Resend, Gmail, Postmark, SendGrid…</span>
+            </div>
+            <div class="int-status @(Email.IsEnabled ? "is-on" : "is-off")">
+                <span class="int-status-dot"></span>
+                @(Email.IsEnabled ? "Ativo" : "Desligado")
+            </div>
+        </div>
+
+        <p class="int-card-desc">
+            Dispara em <b>servidor caiu</b> e <b>cliente abriu chamado novo</b>.
+            Template HTML com a marca do Nexus.
+        </p>
+
+        @if (Email.IsEnabled)
+        {
+            <div class="int-actions">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           OnClick="SendEmailTest" Disabled="_emailSending"
+                           StartIcon="@Icons.Material.Filled.Send">
+                    @(_emailSending ? "Enviando…" : "Enviar email de teste pra mim")
+                </MudButton>
+            </div>
+        }
+        else
+        {
+            <div class="int-hint">
+                <b>Como ativar:</b>
+                <ol>
+                    <li>Crie conta no <a href="https://resend.com" target="_blank" rel="noopener">Resend</a> (recomendado) ou outro SMTP</li>
+                    <li>Adicione no <code>.env</code> do servidor: <code>Email__Enabled=true</code> + host/user/pass</li>
+                    <li>Restart o container web</li>
+                    <li>Volta aqui e clica "Enviar teste"</li>
+                </ol>
+            </div>
+        }
+    </div>
+
+
+</div>
+
+@code {
+    private bool _emailSending;
+
+    private async Task SendEmailTest()
+    {
+        _emailSending = true;
+        try
+        {
+            var html = "<h2 style=\"color:#00c2ff;margin:0 0 12px;\">Teste de email ✓</h2>"
+                     + "<p>Se você está lendo isso, o canal de email transacional do Nexus está funcionando. Próximos alertas reais virão pelo mesmo caminho.</p>"
+                     + "<p style=\"color:#94a3b8;font-size:13px;\">Disparado manualmente pela tela <b>/integracoes</b>.</p>";
+            await Email.NotifyAdminAsync("Teste de email do Nexus", html);
+            Snackbar.Add("Email disparado. Confere sua caixa (e a pasta de spam).", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falhou: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _emailSending = false;
+        }
+    }
+
+}

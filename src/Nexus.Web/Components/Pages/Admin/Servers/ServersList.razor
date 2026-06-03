@@ -1,0 +1,205 @@
+@page "/servidores"
+@attribute [Authorize(Roles = "Admin,Technician")]
+@rendermode InteractiveServer
+@using Nexus.Application.Features.Servers
+@using Nexus.Domain.Enums
+@inject ServersService Svc
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Servidores — Nexus</PageTitle>
+
+<div class="nexus-page-header">
+    <div>
+        <h1 class="nexus-h1">Servidores & Homelab</h1>
+        <p class="nexus-sub">Sua infraestrutura num só lugar · health checks automáticos a cada 5 min</p>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => OpenForm(null))">
+        Novo Servidor
+    </MudButton>
+</div>
+
+@if (_summary is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-8" />
+}
+else
+{
+    <MudGrid Spacing="4" Class="mb-2">
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Online" Value="@_summary.Online.ToString()"
+                      Icon="@Icons.Material.Filled.CheckCircle" Color="#22c55e"
+                      Hint="@($"{_summary.Total} no total")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Offline / Manutenção" Value="@($"{_summary.Offline + _summary.Unknown}")"
+                      Icon="@Icons.Material.Filled.Warning" Color="#ef4444"
+                      Hint="@(_summary.Offline > 0 ? $"{_summary.Offline} caídos" : "tudo certo")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Custo mensal total" Value="@_summary.MonthlyCostTotal.ToString("C2")"
+                      Icon="@Icons.Material.Filled.Payments" Color="#00c2ff" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <StatCard Label="Renovação em 30 dias" Value="@_summary.RenewingSoon.ToString()"
+                      Icon="@Icons.Material.Filled.EventRepeat" Color="#f59e0b"
+                      Hint="@(_summary.RenewingSoon > 0 ? "atenção" : null)" />
+        </MudItem>
+    </MudGrid>
+}
+
+<MudPaper Class="nexus-panel" Elevation="0">
+    <MudTable @ref="_table" ServerData="LoadData" Hover="true" Dense="true" Elevation="0"
+              Class="nexus-table" Loading="_loading" T="ServerListItemDto"
+              OnRowClick="@OnRowClick">
+        <ToolBarContent>
+            <MudGrid Spacing="2" Class="align-center">
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_search" Placeholder="Buscar por nome, hostname, IP, tag..."
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true" OnKeyUp="OnSearchKey" Class="mt-0" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="ServerType" SelectAll="true" SelectAllText="Todos"
+                               MultiSelection="true" @bind-SelectedValues="_typeFilter" @bind-SelectedValues:after="Reload"
+                               Label="Tipo" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="ServerType.VPS">VPS</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Dedicated">Dedicado</MudSelectItem>
+                        <MudSelectItem Value="ServerType.HomeServer">Homelab</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Container">Container</MudSelectItem>
+                        <MudSelectItem Value="ServerType.VirtualMachine">VM</MudSelectItem>
+                        <MudSelectItem Value="ServerType.Cloud">Cloud</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="ServerStatus" SelectAll="true" SelectAllText="Todos"
+                               MultiSelection="true" @bind-SelectedValues="_statusFilter" @bind-SelectedValues:after="Reload"
+                               Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem Value="ServerStatus.Online">Online</MudSelectItem>
+                        <MudSelectItem Value="ServerStatus.Offline">Offline</MudSelectItem>
+                        <MudSelectItem Value="ServerStatus.Maintenance">Manutenção</MudSelectItem>
+                        <MudSelectItem Value="ServerStatus.Unknown">Desconhecido</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Status</MudTh>
+            <MudTh>Nome</MudTh>
+            <MudTh>Tipo</MudTh>
+            <MudTh>Endereço</MudTh>
+            <MudTh>Serviços</MudTh>
+            <MudTh>Custo/mês</MudTh>
+            <MudTh>Renovação</MudTh>
+            <MudTh>Último check</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <span class="@($"srv-dot srv-dot-{StatusClass(context.Status)}")"></span>
+            </MudTd>
+            <MudTd DataLabel="Nome">
+                <b>@context.Name</b>
+                @if (!string.IsNullOrWhiteSpace(context.Tags))
+                {
+                    <div class="srv-tags">@context.Tags</div>
+                }
+            </MudTd>
+            <MudTd DataLabel="Tipo">@TypeLabel(context.Type)</MudTd>
+            <MudTd DataLabel="Endereço">
+                @if (!string.IsNullOrWhiteSpace(context.Hostname)) { <div><code>@context.Hostname</code></div> }
+                @if (!string.IsNullOrWhiteSpace(context.PublicIp)) { <div style="color:var(--nx-text-3);font-size:11px"><code>@context.PublicIp</code></div> }
+            </MudTd>
+            <MudTd DataLabel="Serviços">@context.ServicesCount</MudTd>
+            <MudTd DataLabel="Custo">@(context.MonthlyCost?.ToString("C2") ?? "—")</MudTd>
+            <MudTd DataLabel="Renovação">
+                @if (context.RenewalDate is DateTime d)
+                {
+                    var days = (d - DateTime.UtcNow).TotalDays;
+                    var cls = days < 7 ? "color:var(--nx-error)" : days < 30 ? "color:var(--nx-warning)" : "";
+                    <span style="@cls">@d.ToString("dd/MM/yyyy")</span>
+                }
+                else { <span style="color:var(--nx-text-3)">—</span> }
+            </MudTd>
+            <MudTd DataLabel="Check">
+                @(context.LastCheckedAt?.ToString("dd/MM HH:mm") ?? "—")
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <div class="nexus-empty">Nenhum servidor cadastrado ainda.</div>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<ServerListItemDto> _table = null!;
+    private string? _search;
+    private IReadOnlyCollection<ServerType> _typeFilter = new HashSet<ServerType>(Enum.GetValues<ServerType>());
+    private IReadOnlyCollection<ServerStatus> _statusFilter = new HashSet<ServerStatus>(Enum.GetValues<ServerStatus>());
+    private bool _loading;
+    private ServersSummaryDto? _summary;
+
+    protected override async Task OnInitializedAsync() => await LoadSummary();
+
+    private async Task LoadSummary() => _summary = await Svc.GetSummaryAsync();
+
+    private async Task<TableData<ServerListItemDto>> LoadData(TableState state, CancellationToken token)
+    {
+        _loading = true;
+        try
+        {
+            var page = await Svc.GetPagedAsync(_search,
+                _typeFilter?.ToList(), _statusFilter?.ToList(),
+                state.Page + 1, state.PageSize, token);
+            return new TableData<ServerListItemDto> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload()
+    {
+        if (_table is not null) await _table.ReloadServerData();
+        await LoadSummary();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Reload();
+    }
+
+    private void OnRowClick(TableRowClickEventArgs<ServerListItemDto> args)
+        => Nav.NavigateTo($"/servidores/{args.Item!.Id}");
+
+    private async Task OpenForm(Guid? id)
+    {
+        var parameters = new DialogParameters { ["ServerId"] = id };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var title = id is null ? "Novo Servidor" : "Editar Servidor";
+        var dlg = await DialogService.ShowAsync<ServerFormDialog>(title, parameters, options);
+        var res = await dlg.Result;
+        if (res is not null && !res.Canceled) await Reload();
+    }
+
+    private static string StatusClass(ServerStatus s) => s switch
+    {
+        ServerStatus.Online => "online",
+        ServerStatus.Offline => "offline",
+        ServerStatus.Maintenance => "warn",
+        _ => "unknown"
+    };
+
+    private static string TypeLabel(ServerType t) => t switch
+    {
+        ServerType.VPS => "VPS",
+        ServerType.Dedicated => "Dedicado",
+        ServerType.HomeServer => "Homelab",
+        ServerType.Container => "Container",
+        ServerType.VirtualMachine => "VM",
+        ServerType.Cloud => "Cloud",
+        _ => t.ToString()
+    };
+}

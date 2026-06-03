@@ -1,0 +1,26 @@
+@using Nexus.Application.Features.Tickets
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3" Color="Color.Secondary">
+            Descreva a solução aplicada (opcional, mas recomendado pro histórico).
+            Você pode informar também o valor cobrado pelo serviço.
+        </MudText>
+        <MudTextField @bind-Value="_model.Resolution" Label="Resolução / o que foi feito"
+                      Lines="4" Variant="Variant.Outlined" Class="mb-3" MaxLength="5000" />
+        <MudNumericField @bind-Value="_model.ServiceValue" Label="Valor do serviço (R$)"
+                         Min="0" Format="N2" Variant="Variant.Outlined" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Success" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.CheckCircle"
+                   OnClick="@(() => MudDialog.Close(DialogResult.Ok(_model)))">
+            Marcar como resolvido
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    private ResolveTicketDto _model = new();
+}

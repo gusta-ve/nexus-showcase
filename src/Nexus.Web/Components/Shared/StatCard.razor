@@ -1,0 +1,19 @@
+<MudPaper Class="nexus-stat-card" Elevation="0">
+    <div class="nexus-stat-head">
+        <span class="nexus-stat-label">@Label</span>
+        <MudIcon Icon="@Icon" Style="@($"color:{Color};")" Size="Size.Small" />
+    </div>
+    <div class="nexus-stat-value">@Value</div>
+    @if (!string.IsNullOrEmpty(Hint))
+    {
+        <div class="nexus-stat-hint">@Hint</div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string Icon { get; set; } = Icons.Material.Filled.Analytics;
+    [Parameter] public string Color { get; set; } = "#6366f1";
+    [Parameter] public string? Hint { get; set; }
+}
